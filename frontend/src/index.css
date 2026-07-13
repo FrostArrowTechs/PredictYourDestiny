@@ -1,0 +1,39 @@
+@import 'tailwindcss';
+
+/* ────────────────────────────────────────────────────────────
+   Theme tokens. Tailwind v4 reads CSS custom properties declared
+   with @theme and exposes them as utilities (e.g. bg-bg, text-fg).
+   A calm, mystical purple palette suits a divination site.
+   ──────────────────────────────────────────────────────────── */
+@theme {
+  --color-bg: #0f0a1e;
+  --color-surface: #1a1230;
+  --color-surface-2: #241a44;
+  --color-fg: #ece8f5;
+  --color-muted: #a89fc4;
+  --color-border: #2e234f;
+  --color-primary: #a78bfa;
+  --color-primary-hover: #c4b5fd;
+  --color-accent: #fbbf24;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(1200px 600px at 80% -10%, rgba(167, 139, 250, 0.15), transparent 60%),
+    radial-gradient(900px 500px at 0% 100%, rgba(251, 191, 36, 0.08), transparent 55%),
+    var(--color-bg);
+  color: var(--color-fg);
+  font-family: 'Inter', system-ui, 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
