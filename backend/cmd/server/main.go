@@ -26,6 +26,7 @@ import (
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
+	"predictdestiny/internal/ai"
 	"predictdestiny/internal/config"
 	"predictdestiny/internal/model"
 	"predictdestiny/internal/server"
@@ -75,6 +76,11 @@ func main() {
 		log.Fatalf("seed settings: %v", err)
 	}
 
+	// AI gateway reads base_url / api_key / model list from the
+	// settings table, so it's ready the moment those are configured
+	// via the admin API — no restart needed.
+	gateway := ai.NewOpenAIGateway(settingStore)
+
 	// Touch lunar-go so an import error surfaces here, not deep in a
 	// request. (Real usage begins in stage 1 / bazi.)
 	_ = calendar.NewSolar(2000, 1, 1, 12, 0, 0)
@@ -82,7 +88,7 @@ func main() {
 	// 5) serve
 	srv := &http.Server{
 		Addr:              cfg.ServerAddr,
-		Handler:           server.New(server.Deps{DB: db, Settings: settingStore}),
+		Handler:           server.New(server.Deps{DB: db, Settings: settingStore, Gateway: gateway}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
@@ -126,13 +132,13 @@ func defaultSettings() []model.Setting {
 			SortOrder: 20,
 		},
 		{
-			Key: model.SettingAIModels, Value: `[]`,
+			Key: model.SettingAIModels, Value: `[{"id":"qwen3.7-plus","tier":"free","label":"通义千问 3.7 Plus"}]`,
 			Kind: model.SettingKindJSON, Group: model.SettingGroupAI,
 			Label: "可用模型列表", Hint: `JSON，例如 [{"id":"deepseek-chat","tier":"free","label":"DeepSeek"}]`,
 			SortOrder: 30,
 		},
 		{
-			Key: model.SettingAIDefaultModel, Value: "",
+			Key: model.SettingAIDefaultModel, Value: "qwen3.7-plus",
 			Kind: model.SettingKindText, Group: model.SettingGroupAI,
 			Label: "默认免费模型", Hint: "登录用户的免费额度默认使用此模型",
 			SortOrder: 40,

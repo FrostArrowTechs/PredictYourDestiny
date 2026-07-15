@@ -89,9 +89,13 @@ func (s *SettingStore) Set(key, value string) error {
 	return nil
 }
 
-// SetMany updates multiple keys in one transaction.
+// SetMany updates multiple keys in one transaction and then refreshes
+// the in-memory snapshot so the new values are visible to readers
+// immediately. Without the snapshot refresh the DB would hold the
+// new value but callers reading via Get (the AI gateway, the bazi
+// handler, …) would still see the old one until a manual Reload.
 func (s *SettingStore) SetMany(kv map[string]string) error {
-	return s.db.Transaction(func(tx *gorm.DB) error {
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
 		for k, v := range kv {
 			if err := tx.Model(&model.Setting{}).
 				Where("key = ?", k).
@@ -100,7 +104,16 @@ func (s *SettingStore) SetMany(kv map[string]string) error {
 			}
 		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	// commit succeeded — make the new values visible to Get readers.
+	s.mu.Lock()
+	for k, v := range kv {
+		s.snapshot[k] = v
+	}
+	s.mu.Unlock()
+	return nil
 }
 
 // Reload re-reads every setting from the database into the cache.

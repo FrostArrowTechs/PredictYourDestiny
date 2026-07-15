@@ -72,3 +72,235 @@ export interface HealthResponse {
 export const Health = {
   check: () => api.get<HealthResponse>('/health'),
 }
+
+// ── bazi (四柱命理) ──────────────────────────────────────────────
+//
+// These mirror the JSON shapes the Go handler returns verbatim (see
+// backend/internal/fortune/bazi.go), so a backend field rename shows
+// up as a TS compile error here.
+
+export interface Pillar {
+  position: string // 年|月|日|时
+  ganZhi: string // e.g. 甲子
+  gan: string // 天干
+  zhi: string // 地支
+  wuXing: string // e.g. 木水 (gan + zhi element)
+  naYin: string // 纳音
+  hideGan: string[] // 地支藏干
+  shiShenGan: string // 天干十神
+  shiShenZhi: string[] // 地支藏干十神
+  diShi: string // 十二长生
+  xun: string
+  xunKong: string
+}
+
+export interface ShenSha {
+  name: string
+  position: string
+  ganZhi: string
+  note: string
+}
+
+export interface LiuNian {
+  year: number
+  age: number
+  ganZhi: string
+}
+
+export interface DaYun {
+  index: number // 0 = 起运前
+  ganZhi: string
+  startYear: number
+  endYear: number
+  startAge: number
+  endAge: number
+  liuNian: LiuNian[]
+}
+
+export interface WuXingStat {
+  element: string // 金|木|水|火|土
+  count: number
+  percent: number
+}
+
+export interface WangShuai {
+  strong: string
+  weak: string
+  dayWang: string // 偏旺|偏弱|平衡
+  summary: string
+}
+
+export interface YongYin {
+  yongShen: string
+  xi: string[]
+  ji: string[]
+  confidence: string
+  reason: string
+}
+
+export interface BaziChart {
+  solar: string
+  lunar: string
+  solarISO: string
+  longitude: number
+  trueSolar: boolean
+  correction: string
+  pillars: Pillar[]
+  taiYuan: string
+  taiYuanNaYin: string
+  taiXi: string
+  taiXiNaYin: string
+  mingGong: string
+  mingGongNaYin: string
+  shenGong: string
+  shenGongNaYin: string
+  shenSha: ShenSha[]
+  startYear: number
+  startMonth: number
+  startDay: number
+  startHour: number
+  forward: boolean
+  startSolar: string
+  daYun: DaYun[]
+  wuXingStats: WuXingStat[]
+  wangShuai: WangShuai
+  yongYin: YongYin
+}
+
+export interface BaziResult {
+  kind: 'bazi'
+  data: BaziChart
+  meta: Record<string, string>
+}
+
+export interface BaziInput {
+  year: number
+  month: number
+  day: number
+  hour: number
+  minute: number
+  gender: 0 | 1 // 0 女, 1 男
+  longitude?: number
+  lang?: string
+  interpretDepth?: 'brief' | 'deep'
+  model?: string
+  stream?: boolean
+}
+
+export interface BaziInterpretResponse {
+  content: string
+  reasoning: string
+  model: string
+  usage: {
+    prompt_tokens: number
+    completion_tokens: number
+    total_tokens: number
+    reasoning_tokens?: number
+  }
+}
+
+export const Bazi = {
+  compute: (input: BaziInput) => api.post<BaziResult>('/bazi/compute', input),
+  interpret: (input: BaziInput) => api.post<BaziInterpretResponse>('/bazi/interpret', input),
+}
+
+// ── model catalog (for tier-aware model picker UI) ───────────────
+
+export interface ModelEntry {
+  id: string
+  label: string
+  tier: 'free' | 'paid'
+}
+
+export interface ModelCatalog {
+  free: ModelEntry[]
+  paid: ModelEntry[]
+}
+
+// ── SSE streaming for /bazi/interpret ────────────────────────────
+//
+// The sync `api.post` helper JSON-parses the whole body, which breaks
+// for SSE. streamBaziInterpret opens a fetch with stream=true, reads
+// the response as a ReadableStream, and emits each `data: {...}` line
+// as a parsed event. The caller renders deltas as they arrive for the
+// typewriter effect.
+
+export interface InterpretStreamEvent {
+  content?: string
+  reasoning?: string
+  usage?: BaziInterpretResponse['usage']
+  done?: boolean
+  error?: string
+}
+
+export async function streamBaziInterpret(
+  input: BaziInput,
+  onEvent: (ev: InterpretStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/bazi/interpret`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    body: JSON.stringify({ ...input, stream: true }),
+    signal,
+  })
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    let msg = res.statusText
+    try {
+      const j = JSON.parse(text) as { error?: string }
+      if (j.error) msg = j.error
+    } catch {
+      if (text) msg = text
+    }
+    onEvent({ error: msg })
+    return
+  }
+
+  if (!res.body) {
+    onEvent({ error: 'empty stream' })
+    return
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    // SSE events are separated by \n\n; handle multiple per chunk.
+    let idx: number
+    while ((idx = buffer.indexOf('\n\n')) !== -1) {
+      const rawEvent = buffer.slice(0, idx)
+      buffer = buffer.slice(idx + 2)
+      const line = parseSseDataLine(rawEvent)
+      if (line === null) continue
+      if (line === '[DONE]') {
+        onEvent({ done: true })
+        return
+      }
+      try {
+        onEvent(JSON.parse(line) as InterpretStreamEvent)
+      } catch {
+        // skip malformed event
+      }
+    }
+  }
+  onEvent({ done: true })
+}
+
+// parseSseDataLine pulls the payload out of one SSE event block
+// (which may contain a "data:" line plus comments/ids). Returns null
+// if the block has no data line.
+function parseSseDataLine(block: string): string | null {
+  for (const line of block.split('\n')) {
+    const trimmed = line.trimStart()
+    if (trimmed.startsWith('data:')) {
+      return trimmed.slice(5).trimStart()
+    }
+  }
+  return null
+}

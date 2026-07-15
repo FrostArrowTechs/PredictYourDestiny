@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"predictdestiny/internal/ai"
 	"predictdestiny/internal/handler"
 	"predictdestiny/internal/store"
 )
@@ -28,6 +29,7 @@ import (
 type Deps struct {
 	DB       *gorm.DB
 	Settings *store.SettingStore
+	Gateway  ai.Gateway
 }
 
 // New assembles the Gin engine with all routes registered.
@@ -49,6 +51,7 @@ func New(deps Deps) *gin.Engine {
 	// --- handlers ---
 	health := &handler.HealthHandler{DB: deps.DB}
 	settings := &handler.SettingHandler{Settings: deps.Settings}
+	bazi := &handler.BaziHandler{Gateway: deps.Gateway}
 
 	// --- API routes ---
 	api := r.Group("/api")
@@ -60,6 +63,11 @@ func New(deps Deps) *gin.Engine {
 		api.GET("/settings", settings.List)
 		api.PUT("/settings", settings.Update)
 		api.POST("/settings/reload", settings.Reload)
+
+		// Bazi (stage 1): chart compute is anonymous/free; AI
+		// interpret hits the gateway. Auth + quota gating in stage 4.
+		api.POST("/bazi/compute", bazi.Compute)
+		api.POST("/bazi/interpret", bazi.Interpret)
 	}
 
 	// Anything under /api/* that isn't matched returns a JSON 404.

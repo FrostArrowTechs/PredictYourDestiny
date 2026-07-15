@@ -4,6 +4,9 @@
 .env.*.local
 !.env.example
 
+# ---- Local task tracking (keep out of VCS) ----
+TODO.md
+
 # ---- Go (backend) ----
 /backend/bin/
 /backend/tmp/
