@@ -19,7 +19,7 @@ const zhCN = {
     bazi: '八字命理',
     dream: '周公解梦',
     zodiac: '生肖运势',
-    huangli: '万年历黄历',
+    huangli: '万年历',
     constellation: '星座',
     tarot: '塔罗',
     compatibility: '配对合盘',

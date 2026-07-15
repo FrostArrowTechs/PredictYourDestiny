@@ -15,7 +15,7 @@ const zhTW: Translation = {
     bazi: '八字命理',
     dream: '周公解夢',
     zodiac: '生肖運勢',
-    huangli: '萬年曆黃曆',
+    huangli: '萬年曆',
     constellation: '星座',
     tarot: '塔羅',
     compatibility: '配對合盤',
