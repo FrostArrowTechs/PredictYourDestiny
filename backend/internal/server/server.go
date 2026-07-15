@@ -52,6 +52,8 @@ func New(deps Deps) *gin.Engine {
 	health := &handler.HealthHandler{DB: deps.DB}
 	settings := &handler.SettingHandler{Settings: deps.Settings}
 	bazi := &handler.BaziHandler{Gateway: deps.Gateway}
+	dream := &handler.DreamHandler{Gateway: deps.Gateway, DB: deps.DB}
+	huangli := &handler.HuangliHandler{Gateway: deps.Gateway}
 
 	// --- API routes ---
 	api := r.Group("/api")
@@ -68,6 +70,14 @@ func New(deps Deps) *gin.Engine {
 		// interpret hits the gateway. Auth + quota gating in stage 4.
 		api.POST("/bazi/compute", bazi.Compute)
 		api.POST("/bazi/interpret", bazi.Interpret)
+
+		// Dream (stage 2): keyword search + AI interpretation.
+		api.POST("/dream/compute", dream.Compute)
+		api.POST("/dream/interpret", dream.Interpret)
+
+		// Huangli (stage 2): calendar data + AI advice.
+		api.POST("/huangli/compute", huangli.Compute)
+		api.POST("/huangli/interpret", huangli.Interpret)
 	}
 
 	// Anything under /api/* that isn't matched returns a JSON 404.

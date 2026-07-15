@@ -7,6 +7,8 @@ import ComingSoon from './components/ComingSoon'
 
 const HomePage = lazy(() => import('./pages/home/HomePage'))
 const BaziPage = lazy(() => import('./pages/bazi/BaziPage'))
+const DreamPage = lazy(() => import('./pages/dream/DreamPage'))
+const HuangliPage = lazy(() => import('./pages/huangli/HuangliPage'))
 
 export default function App() {
   return (
@@ -18,9 +20,9 @@ export default function App() {
             {/* Each feature lands its own page as its stage ships.
                 Until then they share the ComingSoon placeholder. */}
             <Route path="/bazi" element={<BaziPage />} />
-            <Route path="/dream" element={<ComingSoon titleKey="nav.dream" />} />
+            <Route path="/dream" element={<DreamPage />} />
+            <Route path="/huangli" element={<HuangliPage />} />
             <Route path="/zodiac" element={<ComingSoon titleKey="nav.zodiac" />} />
-            <Route path="/huangli" element={<ComingSoon titleKey="nav.huangli" />} />
             <Route path="/constellation" element={<ComingSoon titleKey="nav.constellation" />} />
             <Route path="/tarot" element={<ComingSoon titleKey="nav.tarot" />} />
             <Route path="/compatibility" element={<ComingSoon titleKey="nav.compatibility" />} />

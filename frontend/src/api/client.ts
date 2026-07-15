@@ -304,3 +304,225 @@ function parseSseDataLine(block: string): string | null {
   }
   return null
 }
+
+// ── dream (周公解梦) ──────────────────────────────────────────────
+
+export interface DreamMatch {
+  keyword: string
+  category: string
+  meaning: string
+}
+
+export interface DreamChart {
+  question: string
+  matches: DreamMatch[]
+  totalMatches: number
+}
+
+export interface DreamResult {
+  kind: 'dream'
+  data: DreamChart
+  meta: Record<string, string>
+}
+
+export interface DreamInput {
+  question: string
+  lang?: string
+  interpretDepth?: 'brief' | 'deep'
+  model?: string
+  stream?: boolean
+}
+
+export interface DreamInterpretResponse {
+  content: string
+  reasoning: string
+  model: string
+  usage: {
+    prompt_tokens: number
+    completion_tokens: number
+    total_tokens: number
+    reasoning_tokens?: number
+  }
+}
+
+export const Dream = {
+  compute: (input: DreamInput) => api.post<DreamResult>('/dream/compute', input),
+  interpret: (input: DreamInput) => api.post<DreamInterpretResponse>('/dream/interpret', input),
+}
+
+// SSE streaming for /dream/interpret
+export async function streamDreamInterpret(
+  input: DreamInput,
+  onEvent: (ev: InterpretStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/dream/interpret`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    body: JSON.stringify({ ...input, stream: true }),
+    signal,
+  })
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    let msg = res.statusText
+    try {
+      const j = JSON.parse(text) as { error?: string }
+      if (j.error) msg = j.error
+    } catch {
+      if (text) msg = text
+    }
+    onEvent({ error: msg })
+    return
+  }
+
+  if (!res.body) {
+    onEvent({ error: 'empty stream' })
+    return
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    let idx: number
+    while ((idx = buffer.indexOf('\n\n')) !== -1) {
+      const rawEvent = buffer.slice(0, idx)
+      buffer = buffer.slice(idx + 2)
+      const line = parseSseDataLine(rawEvent)
+      if (line === null) continue
+      if (line === '[DONE]') {
+        onEvent({ done: true })
+        return
+      }
+      try {
+        onEvent(JSON.parse(line) as InterpretStreamEvent)
+      } catch {
+        // skip malformed event
+      }
+    }
+  }
+  onEvent({ done: true })
+}
+
+// ── huangli (万年历黄历) ──────────────────────────────────────────────
+
+export interface HuangliChart {
+  solar: string
+  lunar: string
+  yearGanZhi: string
+  monthGanZhi: string
+  dayGanZhi: string
+  yi: string[]
+  ji: string[]
+  jiShen: string[]
+  xiongSha: string[]
+  pengZu: string
+  chong: string
+  sha: string
+  wuXing: string
+  naYin: string
+  xingZuo: string
+  erShiBaXiu: string
+  yueXiang: string
+  jieQi: string
+  week: string
+  taiShen: string
+}
+
+export interface HuangliResult {
+  kind: 'huangli'
+  data: HuangliChart
+  meta: Record<string, string>
+}
+
+export interface HuangliInput {
+  year: number
+  month: number
+  day: number
+  lang?: string
+  interpretDepth?: 'brief' | 'deep'
+  model?: string
+  stream?: boolean
+  activity?: string
+}
+
+export interface HuangliInterpretResponse {
+  content: string
+  reasoning: string
+  model: string
+  usage: {
+    prompt_tokens: number
+    completion_tokens: number
+    total_tokens: number
+    reasoning_tokens?: number
+  }
+}
+
+export const Huangli = {
+  compute: (input: HuangliInput) => api.post<HuangliResult>('/huangli/compute', input),
+  interpret: (input: HuangliInput) => api.post<HuangliInterpretResponse>('/huangli/interpret', input),
+}
+
+// SSE streaming for /huangli/interpret
+export async function streamHuangliInterpret(
+  input: HuangliInput,
+  onEvent: (ev: InterpretStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/huangli/interpret`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    body: JSON.stringify({ ...input, stream: true }),
+    signal,
+  })
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    let msg = res.statusText
+    try {
+      const j = JSON.parse(text) as { error?: string }
+      if (j.error) msg = j.error
+    } catch {
+      if (text) msg = text
+    }
+    onEvent({ error: msg })
+    return
+  }
+
+  if (!res.body) {
+    onEvent({ error: 'empty stream' })
+    return
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    let idx: number
+    while ((idx = buffer.indexOf('\n\n')) !== -1) {
+      const rawEvent = buffer.slice(0, idx)
+      buffer = buffer.slice(idx + 2)
+      const line = parseSseDataLine(rawEvent)
+      if (line === null) continue
+      if (line === '[DONE]') {
+        onEvent({ done: true })
+        return
+      }
+      try {
+        onEvent(JSON.parse(line) as InterpretStreamEvent)
+      } catch {
+        // skip malformed event
+      }
+    }
+  }
+  onEvent({ done: true })
+}

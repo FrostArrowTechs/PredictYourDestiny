@@ -14,6 +14,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 	"os"
@@ -65,10 +66,16 @@ func main() {
 		&model.FortuneRecord{},
 		&model.ChatHistory{},
 		&model.UsageQuota{},
+		&model.DreamEntry{},
 	); err != nil {
 		log.Fatalf("automigrate: %v", err)
 	}
 	log.Println("database ready, schema migrated")
+
+	// 3.5) seed dream entries (idempotent)
+	if err := seedDreamEntries(db); err != nil {
+		log.Printf("warn: seed dream entries: %v", err)
+	}
 
 	// 4) seed default settings
 	settingStore, err := store.NewSettingStore(db, defaultSettings())
@@ -152,4 +159,33 @@ func defaultSettings() []model.Setting {
 			SortOrder: 110,
 		},
 	}
+}
+
+// seedDreamEntries loads seed/dream.json into the dream_entries table.
+// It's idempotent: rows already present are skipped (by keyword).
+func seedDreamEntries(db *gorm.DB) error {
+	// Read seed file
+	data, err := os.ReadFile("seed/dream.json")
+	if err != nil {
+		return err
+	}
+
+	var entries []model.DreamEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return err
+	}
+
+	// Insert only if keyword doesn't exist
+	var count int64
+	db.Model(&model.DreamEntry{}).Count(&count)
+	if count > 0 {
+		log.Printf("dream_entries already seeded (%d rows), skipping", count)
+		return nil
+	}
+
+	if err := db.Create(&entries).Error; err != nil {
+		return err
+	}
+	log.Printf("seeded %d dream entries", len(entries))
+	return nil
 }
