@@ -9,6 +9,8 @@ const HomePage = lazy(() => import('./pages/home/HomePage'))
 const BaziPage = lazy(() => import('./pages/bazi/BaziPage'))
 const DreamPage = lazy(() => import('./pages/dream/DreamPage'))
 const HuangliPage = lazy(() => import('./pages/huangli/HuangliPage'))
+const ZodiacPage = lazy(() => import('./pages/zodiac/ZodiacPage'))
+const CompatibilityPage = lazy(() => import('./pages/compatibility/CompatibilityPage'))
 
 export default function App() {
   return (
@@ -22,10 +24,10 @@ export default function App() {
             <Route path="/bazi" element={<BaziPage />} />
             <Route path="/dream" element={<DreamPage />} />
             <Route path="/huangli" element={<HuangliPage />} />
-            <Route path="/zodiac" element={<ComingSoon titleKey="nav.zodiac" />} />
+            <Route path="/zodiac" element={<ZodiacPage />} />
+            <Route path="/compatibility" element={<CompatibilityPage />} />
             <Route path="/constellation" element={<ComingSoon titleKey="nav.constellation" />} />
             <Route path="/tarot" element={<ComingSoon titleKey="nav.tarot" />} />
-            <Route path="/compatibility" element={<ComingSoon titleKey="nav.compatibility" />} />
             <Route path="/account" element={<ComingSoon titleKey="nav.account" />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

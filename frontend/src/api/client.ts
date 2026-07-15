@@ -526,3 +526,186 @@ export async function streamHuangliInterpret(
   }
   onEvent({ done: true })
 }
+
+// ── zodiac (生肖运势) ──────────────────────────────────────────────
+
+export interface ZodiacRelation {
+  type: string
+  with: string
+  effect: string
+}
+
+export interface ZodiacChart {
+  zodiac: string
+  year: number
+  liuNianZhi: string
+  liuNianZodiac: string
+  overallScore: number
+  careerScore: number
+  wealthScore: number
+  loveScore: number
+  healthScore: number
+  relations: ZodiacRelation[]
+  luckyColors: string[]
+  luckyNumbers: number[]
+  luckyDir: string
+  tips: string[]
+  warns: string[]
+}
+
+export interface ZodiacResult {
+  kind: 'zodiac'
+  data: ZodiacChart
+  meta: Record<string, string>
+}
+
+export interface ZodiacInput {
+  year: number
+  month?: number
+  day?: number
+  lang?: string
+  interpretDepth?: 'brief' | 'deep'
+  model?: string
+  stream?: boolean
+}
+
+export const Zodiac = {
+  compute: (input: ZodiacInput) => api.post<ZodiacResult>('/zodiac/compute', input),
+  interpret: (input: ZodiacInput) => api.post<BaziInterpretResponse>('/zodiac/interpret', input),
+}
+
+export async function streamZodiacInterpret(
+  input: ZodiacInput,
+  onEvent: (ev: InterpretStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/zodiac/interpret`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    body: JSON.stringify({ ...input, stream: true }),
+    signal,
+  })
+  await consumeSSE(res, onEvent)
+}
+
+// ── compatibility (男女配对) ───────────────────────────────────────
+
+export interface CompatibilitySubject {
+  zodiac: string
+  yearGanZhi: string
+  dayGan: string
+  dayZhi: string
+  dayWuXing: string
+}
+
+export interface CompatibilityFactor {
+  factor: string
+  score: number
+  detail: string
+}
+
+export interface CompatibilityChart {
+  subject1: CompatibilitySubject
+  subject2: CompatibilitySubject
+  overallScore: number
+  chemistryScore: number
+  harmonyScore: number
+  stabilityScore: number
+  factors: CompatibilityFactor[]
+  summary: string
+  tips: string
+}
+
+export interface CompatibilityResult {
+  kind: 'compatibility'
+  data: CompatibilityChart
+  meta: Record<string, string>
+}
+
+export interface SubjectInput {
+  year: number
+  month: number
+  day: number
+}
+
+export interface CompatibilityInput {
+  year: number
+  month: number
+  day: number
+  second: SubjectInput
+  lang?: string
+  interpretDepth?: 'brief' | 'deep'
+  model?: string
+  stream?: boolean
+}
+
+export const Compatibility = {
+  compute: (input: CompatibilityInput) => api.post<CompatibilityResult>('/compatibility/compute', input),
+  interpret: (input: CompatibilityInput) => api.post<BaziInterpretResponse>('/compatibility/interpret', input),
+}
+
+export async function streamCompatibilityInterpret(
+  input: CompatibilityInput,
+  onEvent: (ev: InterpretStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/compatibility/interpret`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    body: JSON.stringify({ ...input, stream: true }),
+    signal,
+  })
+  await consumeSSE(res, onEvent)
+}
+
+// ── shared SSE consumer helper ─────────────────────────────────────
+
+async function consumeSSE(
+  res: Response,
+  onEvent: (ev: InterpretStreamEvent) => void,
+): Promise<void> {
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    let msg = res.statusText
+    try {
+      const j = JSON.parse(text) as { error?: string }
+      if (j.error) msg = j.error
+    } catch {
+      if (text) msg = text
+    }
+    onEvent({ error: msg })
+    return
+  }
+
+  if (!res.body) {
+    onEvent({ error: 'empty stream' })
+    return
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    let idx: number
+    while ((idx = buffer.indexOf('\n\n')) !== -1) {
+      const rawEvent = buffer.slice(0, idx)
+      buffer = buffer.slice(idx + 2)
+      const line = parseSseDataLine(rawEvent)
+      if (line === null) continue
+      if (line === '[DONE]') {
+        onEvent({ done: true })
+        return
+      }
+      try {
+        onEvent(JSON.parse(line) as InterpretStreamEvent)
+      } catch {
+        // skip malformed event
+      }
+    }
+  }
+  onEvent({ done: true })
+}

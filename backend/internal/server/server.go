@@ -54,6 +54,8 @@ func New(deps Deps) *gin.Engine {
 	bazi := &handler.BaziHandler{Gateway: deps.Gateway}
 	dream := &handler.DreamHandler{Gateway: deps.Gateway, DB: deps.DB}
 	huangli := &handler.HuangliHandler{Gateway: deps.Gateway}
+	zodiac := &handler.ZodiacHandler{Gateway: deps.Gateway}
+	compatibility := &handler.CompatibilityHandler{Gateway: deps.Gateway}
 
 	// --- API routes ---
 	api := r.Group("/api")
@@ -78,6 +80,14 @@ func New(deps Deps) *gin.Engine {
 		// Huangli (stage 2): calendar data + AI advice.
 		api.POST("/huangli/compute", huangli.Compute)
 		api.POST("/huangli/interpret", huangli.Interpret)
+
+		// Zodiac (stage 2): fortune calculation + AI interpretation.
+		api.POST("/zodiac/compute", zodiac.Compute)
+		api.POST("/zodiac/interpret", zodiac.Interpret)
+
+		// Compatibility (stage 2): match analysis + AI interpretation.
+		api.POST("/compatibility/compute", compatibility.Compute)
+		api.POST("/compatibility/interpret", compatibility.Interpret)
 	}
 
 	// Anything under /api/* that isn't matched returns a JSON 404.
