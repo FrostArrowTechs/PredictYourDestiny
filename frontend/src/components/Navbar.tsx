@@ -3,7 +3,7 @@
 //
 // Primary items show directly in the bar; secondary items collapse into
 // a "更多" dropdown so the navbar never overflows as features grow.
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NavLink, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { LogIn, UserPlus } from 'lucide-react'
@@ -15,6 +15,45 @@ export default function Navbar() {
   const { t } = useTranslation()
   const [moreOpen, setMoreOpen] = useState(false)
   const { user, isLoading } = useAuth()
+  const moreRef = useRef<HTMLDivElement>(null)
+  const closeTimer = useRef<number | null>(null)
+
+  // Cancel any pending close and open the menu immediately.
+  const openMore = () => {
+    if (closeTimer.current) {
+      window.clearTimeout(closeTimer.current)
+      closeTimer.current = null
+    }
+    setMoreOpen(true)
+  }
+  // Defer close so the user has time to traverse the gap between
+  // the trigger and the dropdown without it snapping shut.
+  const scheduleCloseMore = () => {
+    if (closeTimer.current) window.clearTimeout(closeTimer.current)
+    closeTimer.current = window.setTimeout(() => setMoreOpen(false), 120)
+  }
+  // Keep the menu open while the cursor is over either the trigger
+  // button or the dropdown panel itself.
+  const keepMoreOpen = () => {
+    if (closeTimer.current) {
+      window.clearTimeout(closeTimer.current)
+      closeTimer.current = null
+    }
+  }
+
+  // Close the "更多" dropdown when the user clicks anywhere outside it.
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) {
+        setMoreOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onDocClick)
+    return () => {
+      document.removeEventListener('mousedown', onDocClick)
+      if (closeTimer.current) window.clearTimeout(closeTimer.current)
+    }
+  }, [])
 
   const primary = [
     { to: '/', label: t('nav.home'), end: true },
@@ -40,7 +79,7 @@ export default function Navbar() {
       'px-3 py-1.5 rounded-md text-sm transition-colors',
       isActive
         ? 'bg-surface-2 text-primary'
-        : 'text-muted hover:text-fg hover:bg-surface',
+        : 'text-muted hover:text-fg hover:bg-surface-2',
     ].join(' ')
 
   return (
@@ -57,17 +96,25 @@ export default function Navbar() {
             </NavLink>
           ))}
           {/* 更多 dropdown */}
-          <div className="relative" onMouseLeave={() => setMoreOpen(false)}>
+          <div
+            ref={moreRef}
+            className="relative"
+            onMouseEnter={openMore}
+            onMouseLeave={scheduleCloseMore}
+          >
             <button
               type="button"
-              onMouseEnter={() => setMoreOpen(true)}
               onClick={() => setMoreOpen((v) => !v)}
               className="px-3 py-1.5 rounded-md text-sm text-muted hover:text-fg hover:bg-surface transition-colors"
             >
               {t('nav.more')} ▾
             </button>
             {moreOpen && (
-              <div className="absolute left-0 top-full mt-1 min-w-[8rem] rounded-lg border border-border bg-surface py-1 shadow-lg">
+              <div
+                onMouseEnter={keepMoreOpen}
+                onMouseLeave={scheduleCloseMore}
+                className="absolute left-0 top-full mt-1 min-w-[8rem] rounded-lg border border-border bg-surface py-1 shadow-lg"
+              >
                 {secondary.map((it) => (
                   <NavLink
                     key={it.to}

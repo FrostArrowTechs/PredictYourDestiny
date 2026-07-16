@@ -23,41 +23,86 @@ import {
 } from '../../api/client'
 import BaziChart from '../../components/charts/BaziChart'
 
-// a handful of common Chinese cities → longitude, so users can pick
-// instead of typing a number. The list is intentionally short; the
-// manual longitude field covers anything else.
-const CITY_LONGITUDES: Record<string, number> = {
-  北京: 116.41,
-  上海: 121.47,
-  广州: 113.27,
-  深圳: 114.06,
-  成都: 104.07,
-  重庆: 106.55,
-  杭州: 120.16,
-  西安: 108.94,
-  武汉: 114.30,
-  南京: 118.80,
-  天津: 117.20,
-  苏州: 120.62,
-  长沙: 112.94,
-  青岛: 120.38,
-  郑州: 113.62,
-  沈阳: 123.43,
-  哈尔滨: 126.64,
-  昆明: 102.72,
-  厦门: 118.09,
-  福州: 119.30,
-  济南: 117.00,
-  石家庄: 114.51,
-  太原: 112.55,
-  兰州: 103.83,
-  贵阳: 106.71,
-  南宁: 108.37,
-  海口: 110.32,
-  拉萨: 91.13,
-  乌鲁木齐: 87.62,
-  呼和浩特: 111.75,
-}
+// a more complete city → longitude table. Grouped by region so the
+// dropdown is easy to scan. Users can also type a custom longitude
+// in the optional override field.
+type CityEntry = { name: string; lon: number }
+const CITY_GROUPS: { label: string; cities: CityEntry[] }[] = [
+  {
+    label: '直辖市',
+    cities: [
+      { name: '北京', lon: 116.41 },
+      { name: '上海', lon: 121.47 },
+      { name: '天津', lon: 117.20 },
+      { name: '重庆', lon: 106.55 },
+    ],
+  },
+  {
+    label: '省会与主要城市',
+    cities: [
+      { name: '广州', lon: 113.27 },
+      { name: '深圳', lon: 114.06 },
+      { name: '成都', lon: 104.07 },
+      { name: '杭州', lon: 120.16 },
+      { name: '西安', lon: 108.94 },
+      { name: '武汉', lon: 114.30 },
+      { name: '南京', lon: 118.80 },
+      { name: '苏州', lon: 120.62 },
+      { name: '长沙', lon: 112.94 },
+      { name: '青岛', lon: 120.38 },
+      { name: '郑州', lon: 113.62 },
+      { name: '沈阳', lon: 123.43 },
+      { name: '哈尔滨', lon: 126.64 },
+      { name: '昆明', lon: 102.72 },
+      { name: '厦门', lon: 118.09 },
+      { name: '福州', lon: 119.30 },
+      { name: '济南', lon: 117.00 },
+      { name: '石家庄', lon: 114.51 },
+      { name: '太原', lon: 112.55 },
+      { name: '兰州', lon: 103.83 },
+      { name: '贵阳', lon: 106.71 },
+      { name: '南宁', lon: 108.37 },
+      { name: '海口', lon: 110.32 },
+      { name: '拉萨', lon: 91.13 },
+      { name: '乌鲁木齐', lon: 87.62 },
+      { name: '呼和浩特', lon: 111.75 },
+      { name: '银川', lon: 106.23 },
+      { name: '西宁', lon: 101.78 },
+      { name: '南昌', lon: 115.86 },
+      { name: '合肥', lon: 117.28 },
+      { name: '长春', lon: 125.33 },
+      { name: '大连', lon: 121.62 },
+    ],
+  },
+  {
+    label: '港澳台',
+    cities: [
+      { name: '香港', lon: 114.17 },
+      { name: '澳门', lon: 113.55 },
+      { name: '台北', lon: 121.56 },
+    ],
+  },
+  {
+    label: '海外',
+    cities: [
+      { name: '东京', lon: 139.69 },
+      { name: '首尔', lon: 126.98 },
+      { name: '新加坡', lon: 103.82 },
+      { name: '吉隆坡', lon: 101.69 },
+      { name: '曼谷', lon: 100.50 },
+      { name: '纽约', lon: -74.01 },
+      { name: '洛杉矶', lon: -118.24 },
+      { name: '伦敦', lon: -0.13 },
+      { name: '巴黎', lon: 2.35 },
+      { name: '悉尼', lon: 151.21 },
+    ],
+  },
+]
+
+// Flatten the grouped list to O(1) lookup: name → longitude.
+const CITY_LONGITUDES: Record<string, number> = Object.fromEntries(
+  CITY_GROUPS.flatMap((g) => g.cities.map((c) => [c.name, c.lon])),
+)
 
 export default function BaziPage() {
   const { t, i18n } = useTranslation()
@@ -214,11 +259,11 @@ export default function BaziPage() {
 
       {/* ── input form ── */}
       <section className="rounded-2xl border border-border bg-surface p-5">
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           <Field label={t('bazi.form.birthdate')}>
             <div className="flex gap-2">
               <select
-                className={inputCls}
+                className={`${inputCls} flex-1`}
                 value={year}
                 onChange={(e) => setYear(Number(e.target.value))}
               >
@@ -229,7 +274,7 @@ export default function BaziPage() {
                 ))}
               </select>
               <select
-                className={inputCls}
+                className={`${inputCls} w-20`}
                 value={month}
                 onChange={(e) => setMonth(Number(e.target.value))}
               >
@@ -240,7 +285,7 @@ export default function BaziPage() {
                 ))}
               </select>
               <select
-                className={inputCls}
+                className={`${inputCls} w-20`}
                 value={day}
                 onChange={(e) => setDay(Number(e.target.value))}
               >
@@ -256,7 +301,7 @@ export default function BaziPage() {
           <Field label={t('bazi.form.birthtime')}>
             <div className="flex gap-2">
               <select
-                className={inputCls}
+                className={`${inputCls} flex-1`}
                 value={hour}
                 onChange={(e) => setHour(Number(e.target.value))}
               >
@@ -266,8 +311,9 @@ export default function BaziPage() {
                   </option>
                 ))}
               </select>
+              <span className="self-center text-muted">:</span>
               <select
-                className={inputCls}
+                className={`${inputCls} flex-1`}
                 value={minute}
                 onChange={(e) => setMinute(Number(e.target.value))}
               >
@@ -282,28 +328,30 @@ export default function BaziPage() {
 
           <Field label={t('bazi.form.gender')}>
             <div className="flex gap-4 pt-2">
-              <label className="flex items-center gap-1 text-sm">
+              <label className="flex items-center gap-2 text-sm text-fg cursor-pointer">
                 <input
                   type="radio"
                   name="gender"
                   checked={gender === 1}
                   onChange={() => setGender(1)}
+                  className="accent-primary"
                 />
                 {t('bazi.form.male')}
               </label>
-              <label className="flex items-center gap-1 text-sm">
+              <label className="flex items-center gap-2 text-sm text-fg cursor-pointer">
                 <input
                   type="radio"
                   name="gender"
                   checked={gender === 0}
                   onChange={() => setGender(0)}
+                  className="accent-primary"
                 />
                 {t('bazi.form.female')}
               </label>
             </div>
           </Field>
 
-          <Field label={t('bazi.form.longitude')}>
+          <Field label={t('bazi.form.birthplace')}>
             <select
               className={inputCls}
               value={city}
@@ -312,17 +360,21 @@ export default function BaziPage() {
                 setLongitude('')
               }}
             >
-              <option value="">—</option>
-              {Object.keys(CITY_LONGITUDES).map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
+              <option value="">{t('bazi.form.birthplaceNone')}</option>
+              {CITY_GROUPS.map((g) => (
+                <optgroup key={g.label} label={g.label}>
+                  {g.cities.map((c) => (
+                    <option key={c.name} value={c.name}>
+                      {c.name}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </Field>
 
           <Field label={t('bazi.interpret.depth')}>
-            <div className="flex gap-2 pt-2">
+            <div className="flex gap-2 pt-1">
               <button
                 type="button"
                 onClick={() => setDepth('brief')}
@@ -363,7 +415,8 @@ export default function BaziPage() {
         </div>
 
         {/* optional manual longitude override */}
-        <div className="mt-3 flex items-center gap-3 text-xs text-muted">
+        <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
+          <label className="text-muted">{t('bazi.form.longitudeLabel')}</label>
           <input
             type="number"
             step="0.01"
@@ -372,10 +425,10 @@ export default function BaziPage() {
             placeholder={t('bazi.form.longitudeHint')}
             value={longitude}
             onChange={(e) => setLongitude(e.target.value)}
-            className="w-40 rounded-md border border-border bg-surface px-2 py-1 text-fg outline-none focus:border-primary"
+            className="w-44 rounded-md border border-border bg-bg px-3 py-1.5 text-fg outline-none focus:border-primary"
           />
           {effLongitude !== 0 && (
-            <span>
+            <span className="text-xs text-muted">
               ≈ {effLongitude.toFixed(2)}°E
             </span>
           )}
