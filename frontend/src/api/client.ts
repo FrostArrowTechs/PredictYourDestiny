@@ -29,11 +29,19 @@ interface Options extends Omit<RequestInit, 'body'> {
 
 async function request<T>(path: string, opts: Options = {}): Promise<T> {
   const { body, headers, ...rest } = opts
+
+  // Auto-attach JWT token if available
+  const token = localStorage.getItem('pyd_token')
+  const baseHeaders: Record<string, string> = {
+    Accept: 'application/json',
+  }
+  if (body !== undefined) baseHeaders['Content-Type'] = 'application/json'
+  if (token) baseHeaders.Authorization = `Bearer ${token}`
+
   const res = await fetch(`${BASE}${path}`, {
     headers: {
-      Accept: 'application/json',
-      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      ...headers,
+      ...baseHeaders,
+      ...(headers as Record<string, string> | undefined),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
     ...rest,
@@ -1184,4 +1192,89 @@ export async function streamZiweiInterpret(
     signal,
   })
   await consumeSSE(res, onEvent)
+}
+
+// ── auth (认证) ────────────────────────────────────────────────────
+
+export interface AuthUser {
+  id: number
+  email: string
+  displayName: string
+  role: string
+}
+
+export interface AuthResponse {
+  token: string
+  user: AuthUser
+}
+
+export interface LoginInput {
+  email: string
+  password: string
+}
+
+export interface RegisterInput {
+  email: string
+  password: string
+  displayName?: string
+}
+
+export const Auth = {
+  register: (input: RegisterInput) => api.post<AuthResponse>('/auth/register', input),
+  login: (input: LoginInput) => api.post<AuthResponse>('/auth/login', input),
+  me: () => api.get<{ user: AuthUser }>('/auth/me'),
+}
+
+// ── records (用户历史记录) ──────────────────────────────────────────
+
+export interface FortuneRecord {
+  id: number
+  kind: string
+  title: string
+  inputJson: string
+  resultJson: string
+  note: string
+  createdAt: string
+}
+
+export interface RecordsResponse {
+  records: FortuneRecord[]
+  total: number
+  page: number
+  limit: number
+}
+
+export interface CreateRecordInput {
+  kind: string
+  title?: string
+  inputJson: string
+  resultJson: string
+  note?: string
+}
+
+export const Records = {
+  list: (params?: { page?: number; limit?: number; kind?: string }) => {
+    const query = new URLSearchParams()
+    if (params?.page) query.set('page', String(params.page))
+    if (params?.limit) query.set('limit', String(params.limit))
+    if (params?.kind) query.set('kind', params.kind)
+    const qs = query.toString()
+    return api.get<RecordsResponse>(`/records${qs ? `?${qs}` : ''}`)
+  },
+  get: (id: number) => api.get<FortuneRecord>(`/records/${id}`),
+  create: (input: CreateRecordInput) => api.post<FortuneRecord>('/records', input),
+  delete: (id: number) => api.del<{ message: string }>(`/records/${id}`),
+}
+
+// ── quota (配额) ────────────────────────────────────────────────────
+
+export interface QuotaResponse {
+  date: string
+  used: number
+  remaining: number
+  limit: number
+}
+
+export const Quota = {
+  get: () => api.get<QuotaResponse>('/quota'),
 }

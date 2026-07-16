@@ -28,6 +28,7 @@ import (
 	gormlogger "gorm.io/gorm/logger"
 
 	"predictdestiny/internal/ai"
+	"predictdestiny/internal/auth"
 	"predictdestiny/internal/config"
 	"predictdestiny/internal/model"
 	"predictdestiny/internal/server"
@@ -42,6 +43,13 @@ func main() {
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("config: %v", err)
+	}
+
+	// 1.5) initialize JWT auth
+	if cfg.JWTSecret == "" {
+		log.Printf("warn: JWT_SECRET not set, auth endpoints will not work")
+	} else {
+		auth.InitJWT(cfg.JWTSecret)
 	}
 
 	// 2) database
@@ -70,6 +78,9 @@ func main() {
 		&model.DivinationPoem{},
 		&model.CharacterStroke{},
 		&model.TarotCard{},
+		&model.AIProvider{},
+		&model.MembershipTier{},
+		&model.UserMembership{},
 	); err != nil {
 		log.Fatalf("automigrate: %v", err)
 	}
@@ -90,12 +101,17 @@ func main() {
 		log.Printf("warn: seed character strokes: %v", err)
 	}
 
-	// 3.8) seed tarot cards (idempotent)
-	if err := seedTarotCards(db); err != nil {
-		log.Printf("warn: seed tarot cards: %v", err)
-	}
+		// 3.8) seed tarot cards (idempotent)
+		if err := seedTarotCards(db); err != nil {
+			log.Printf("warn: seed tarot cards: %v", err)
+		}
 
-	// 4) seed default settings
+		// 3.9) seed membership tiers (idempotent)
+		if err := seedMembershipTiers(db); err != nil {
+			log.Printf("warn: seed membership tiers: %v", err)
+		}
+
+		// 4) seed default settings
 	settingStore, err := store.NewSettingStore(db, defaultSettings())
 	if err != nil {
 		log.Fatalf("seed settings: %v", err)
@@ -282,9 +298,51 @@ func seedTarotCards(db *gorm.DB) error {
 		return nil
 	}
 
-	if err := db.Create(&cards).Error; err != nil {
-		return err
+		if err := db.Create(&cards).Error; err != nil {
+			return err
+		}
+		log.Printf("seeded %d tarot cards", len(cards))
+		return nil
 	}
-	log.Printf("seeded %d tarot cards", len(cards))
-	return nil
-}
+
+	// seedMembershipTiers creates the default membership tiers (free/basic/premium)
+	// if they don't already exist.
+	func seedMembershipTiers(db *gorm.DB) error {
+		tiers := []model.MembershipTier{
+			{
+				Code:       model.TierCodeFree,
+				Name:       "免费用户",
+				DailyQuota: 5,
+				Features:   `["basic_interpret"]`,
+				PriceMonth: 0,
+				SortOrder:  1,
+			},
+			{
+				Code:       model.TierCodeBasic,
+				Name:       "基础会员",
+				DailyQuota: 20,
+				Features:   `["basic_interpret","deep_interpret","history_save"]`,
+				PriceMonth: 990, // ¥9.90/month
+				SortOrder:  2,
+			},
+			{
+				Code:       model.TierCodePremium,
+				Name:       "高级会员",
+				DailyQuota: -1, // unlimited
+				Features:   `["basic_interpret","deep_interpret","history_save","priority_support"]`,
+				PriceMonth: 2990, // ¥29.90/month
+				SortOrder:  3,
+			},
+		}
+
+		for _, tier := range tiers {
+			var existing model.MembershipTier
+			if err := db.Where("code = ?", tier.Code).First(&existing).Error; err == gorm.ErrRecordNotFound {
+				if err := db.Create(&tier).Error; err != nil {
+					return err
+				}
+				log.Printf("seeded membership tier: %s", tier.Code)
+			}
+		}
+		return nil
+	}

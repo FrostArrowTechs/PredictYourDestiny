@@ -27,6 +27,7 @@ import (
 type Bootstrap struct {
 	DatabaseURL string // PostgreSQL DSN, required
 	ServerAddr  string // HTTP listen address, e.g. ":8080"
+	JWTSecret   string // JWT signing secret, required for auth
 	LogLevel    string // debug | info | warn | error
 }
 
@@ -43,6 +44,7 @@ func Load() (*Bootstrap, error) {
 	cfg := &Bootstrap{
 		DatabaseURL: getenv("DATABASE_URL", ""),
 		ServerAddr:  getenv("SERVER_ADDR", ":8080"),
+		JWTSecret:   getenv("JWT_SECRET", ""),
 		LogLevel:    strings.ToLower(getenv("LOG_LEVEL", "info")),
 	}
 

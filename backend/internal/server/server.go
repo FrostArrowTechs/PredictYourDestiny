@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm"
 
 	"predictdestiny/internal/ai"
+	"predictdestiny/internal/auth"
 	"predictdestiny/internal/handler"
 	"predictdestiny/internal/store"
 )
@@ -51,6 +52,12 @@ func New(deps Deps) *gin.Engine {
 	// --- handlers ---
 	health := &handler.HealthHandler{DB: deps.DB}
 	settings := &handler.SettingHandler{Settings: deps.Settings}
+	authH := &handler.AuthHandler{DB: deps.DB}
+	record := &handler.RecordHandler{DB: deps.DB}
+	quota := &handler.QuotaHandler{DB: deps.DB}
+	adminUser := &handler.AdminUserHandler{DB: deps.DB}
+	adminProvider := &handler.AdminProviderHandler{DB: deps.DB}
+	adminTier := &handler.AdminTierHandler{DB: deps.DB}
 	bazi := &handler.BaziHandler{Gateway: deps.Gateway}
 	dream := &handler.DreamHandler{Gateway: deps.Gateway, DB: deps.DB}
 	huangli := &handler.HuangliHandler{Gateway: deps.Gateway}
@@ -71,10 +78,45 @@ func New(deps Deps) *gin.Engine {
 		api.GET("/health", health.Health)
 		api.GET("/ready", health.Ready)
 
-		// Dynamic config (admin-only once auth lands in stage 4).
+		// Auth endpoints (public)
+		api.POST("/auth/register", authH.Register)
+		api.POST("/auth/login", authH.Login)
+		api.GET("/auth/me", auth.AuthRequired(), authH.Me)
+
+		// User data endpoints (require auth)
+		api.GET("/records", auth.AuthRequired(), record.List)
+		api.POST("/records", auth.AuthRequired(), record.Create)
+		api.GET("/records/:id", auth.AuthRequired(), record.Get)
+		api.DELETE("/records/:id", auth.AuthRequired(), record.Delete)
+		api.GET("/quota", auth.AuthRequired(), quota.Get)
+
+		// Dynamic config (admin-only).
 		api.GET("/settings", settings.List)
-		api.PUT("/settings", settings.Update)
-		api.POST("/settings/reload", settings.Reload)
+		api.PUT("/settings", auth.AdminRequired(), settings.Update)
+		api.POST("/settings/reload", auth.AdminRequired(), settings.Reload)
+
+		// Admin endpoints (require admin role)
+		admin := api.Group("/admin", auth.AdminRequired())
+		{
+			// User management
+			admin.GET("/users", adminUser.ListUsers)
+			admin.GET("/users/:id", adminUser.GetUser)
+			admin.PUT("/users/:id/role", adminUser.UpdateUserRole)
+			admin.PUT("/users/:id/tier", adminUser.UpdateUserTier)
+
+			// AI Provider management
+			admin.GET("/providers", adminProvider.ListProviders)
+			admin.POST("/providers", adminProvider.CreateProvider)
+			admin.PUT("/providers/:id", adminProvider.UpdateProvider)
+			admin.DELETE("/providers/:id", adminProvider.DeleteProvider)
+			admin.POST("/providers/:id/default", adminProvider.SetDefaultProvider)
+
+			// Membership tier management
+			admin.GET("/tiers", adminTier.ListTiers)
+			admin.POST("/tiers", adminTier.CreateTier)
+			admin.PUT("/tiers/:id", adminTier.UpdateTier)
+			admin.DELETE("/tiers/:id", adminTier.DeleteTier)
+		}
 
 		// Bazi (stage 1): chart compute is anonymous/free; AI
 		// interpret hits the gateway. Auth + quota gating in stage 4.

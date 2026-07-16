@@ -23,6 +23,13 @@ TODO.md
 /frontend/*.local
 /frontend/coverage/
 
+# ---- Node (admin) ----
+/admin/node_modules/
+/admin/dist/
+/admin/.vite/
+/admin/*.local
+/admin/coverage/
+
 # ---- Editor / OS ----
 .vscode/
 .idea/
