@@ -969,9 +969,35 @@ export interface AstrologyChart {
 }
 
 export interface AstrologyResult {
-  kind: 'astrology'
-  data: AstrologyChart
-  meta: Record<string, string>
+  // The backend returns the chart directly (not wrapped in {kind, data, meta}).
+  // See backend/internal/handler/astrology.go: c.JSON(..., res.Data).
+  kind?: 'astrology'
+  data?: AstrologyChart
+  meta?: Record<string, string>
+  // Flat fields — the actual payload shape from the server.
+  sunSign: string
+  moonSign: string
+  ascendant: string
+  planets: PlanetInfo[]
+  houses: HouseInfo[]
+  aspects: AspectInfo[]
+  chartSummary?: string
+}
+
+// Normalize whatever the backend returns into the flat chart shape
+// the page actually consumes. Tolerates the historical {data: ...} wrapper
+// in case it's ever reintroduced.
+export function asAstrologyChart(r: AstrologyResult): AstrologyChart {
+  if (r.data) return r.data
+  return {
+    sunSign: r.sunSign,
+    moonSign: r.moonSign,
+    ascendant: r.ascendant,
+    planets: r.planets,
+    houses: r.houses,
+    aspects: r.aspects,
+    chartSummary: r.chartSummary ?? '',
+  }
 }
 
 export interface AstrologyInput {

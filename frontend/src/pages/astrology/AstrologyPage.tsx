@@ -1,7 +1,8 @@
 import { useState, useRef, useCallback } from 'react'
+import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { AstrologyChart, InterpretStreamEvent } from '../../api/client'
-import { Astrology, streamAstrologyInterpret } from '../../api/client'
+import { Astrology, asAstrologyChart, streamAstrologyInterpret } from '../../api/client'
 
 export default function AstrologyPage() {
   const { t } = useTranslation()
@@ -24,7 +25,7 @@ export default function AstrologyPage() {
     setInterpretation('')
     try {
       const res = await Astrology.compute({ year, month, day, hour, minute })
-      setChart(res.data)
+      setChart(asAstrologyChart(res))
     } catch (e) {
       setError(t('astrology.error.compute'))
     } finally {
@@ -77,62 +78,66 @@ export default function AstrologyPage() {
 
       {/* Input Form */}
       <div className="mb-6 rounded-lg border border-border bg-surface p-6">
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
-          <div>
-            <label className="mb-1 block text-sm text-muted">{t('astrology.form.year')}</label>
-            <input
-              type="number"
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
+          <Field label={t('astrology.form.year')}>
+            <select
+              className={selectCls}
               value={year}
               onChange={(e) => setYear(Number(e.target.value))}
-              className="w-full rounded-md border border-border bg-bg px-3 py-2 text-fg"
-              min={1900}
-              max={2100}
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm text-muted">{t('astrology.form.month')}</label>
-            <input
-              type="number"
+            >
+              {ASTROLOGY_YEARS.map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label={t('astrology.form.month')}>
+            <select
+              className={selectCls}
               value={month}
               onChange={(e) => setMonth(Number(e.target.value))}
-              className="w-full rounded-md border border-border bg-bg px-3 py-2 text-fg"
-              min={1}
-              max={12}
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm text-muted">{t('astrology.form.day')}</label>
-            <input
-              type="number"
+            >
+              {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                <option key={m} value={m}>{m} 月</option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label={t('astrology.form.day')}>
+            <select
+              className={selectCls}
               value={day}
               onChange={(e) => setDay(Number(e.target.value))}
-              className="w-full rounded-md border border-border bg-bg px-3 py-2 text-fg"
-              min={1}
-              max={31}
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm text-muted">{t('astrology.form.hour')}</label>
-            <input
-              type="number"
+            >
+              {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                <option key={d} value={d}>{d} 日</option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label={t('astrology.form.hour')}>
+            <select
+              className={selectCls}
               value={hour}
               onChange={(e) => setHour(Number(e.target.value))}
-              className="w-full rounded-md border border-border bg-bg px-3 py-2 text-fg"
-              min={0}
-              max={23}
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm text-muted">{t('astrology.form.minute')}</label>
-            <input
-              type="number"
+            >
+              {Array.from({ length: 24 }, (_, i) => i).map((h) => (
+                <option key={h} value={h}>{String(h).padStart(2, '0')} 时</option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label={t('astrology.form.minute')}>
+            <select
+              className={selectCls}
               value={minute}
               onChange={(e) => setMinute(Number(e.target.value))}
-              className="w-full rounded-md border border-border bg-bg px-3 py-2 text-fg"
-              min={0}
-              max={59}
-            />
-          </div>
+            >
+              {Array.from({ length: 60 }, (_, i) => i).map((m) => (
+                <option key={m} value={m}>{String(m).padStart(2, '0')} 分</option>
+              ))}
+            </select>
+          </Field>
         </div>
 
         <button
@@ -263,6 +268,28 @@ export default function AstrologyPage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// Build a year range that's wide enough for almost any user but not
+// 2000 rows long. The current year is included; centenarians can use
+// the deep-interpret 链接 at the bottom of the page.
+const ASTROLOGY_YEARS: number[] = (() => {
+  const now = new Date().getFullYear()
+  const out: number[] = []
+  for (let y = 1900; y <= now + 1; y++) out.push(y)
+  return out
+})()
+
+const selectCls =
+  'w-full rounded-md border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-primary'
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div>
+      <label className="mb-1 block text-sm text-muted">{label}</label>
+      {children}
     </div>
   )
 }
