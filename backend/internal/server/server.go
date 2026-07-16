@@ -56,6 +56,9 @@ func New(deps Deps) *gin.Engine {
 	huangli := &handler.HuangliHandler{Gateway: deps.Gateway}
 	zodiac := &handler.ZodiacHandler{Gateway: deps.Gateway}
 	compatibility := &handler.CompatibilityHandler{Gateway: deps.Gateway}
+	weighbone := &handler.WeighboneHandler{Gateway: deps.Gateway}
+	divination := &handler.DivinationHandler{Gateway: deps.Gateway, DB: deps.DB}
+	plumflower := &handler.PlumFlowerHandler{Gateway: deps.Gateway}
 
 	// --- API routes ---
 	api := r.Group("/api")
@@ -88,6 +91,18 @@ func New(deps Deps) *gin.Engine {
 		// Compatibility (stage 2): match analysis + AI interpretation.
 		api.POST("/compatibility/compute", compatibility.Compute)
 		api.POST("/compatibility/interpret", compatibility.Interpret)
+
+		// Weighbone (stage 3 batch 1): bone weight fortune.
+		api.POST("/weighbone/compute", weighbone.Compute)
+		api.POST("/weighbone/interpret", weighbone.Interpret)
+
+		// Divination (stage 3 batch 1): draw divination stick + interpret.
+		api.POST("/divination/compute", divination.Compute)
+		api.POST("/divination/interpret", divination.Interpret)
+
+		// Plum flower (stage 3 batch 1): hexagram divination.
+		api.POST("/plumflower/compute", plumflower.Compute)
+		api.POST("/plumflower/interpret", plumflower.Interpret)
 	}
 
 	// Anything under /api/* that isn't matched returns a JSON 404.

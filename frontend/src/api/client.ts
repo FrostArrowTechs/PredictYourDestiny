@@ -709,3 +709,159 @@ async function consumeSSE(
   }
   onEvent({ done: true })
 }
+
+// ── weighbone (称骨算命) ───────────────────────────────────────────
+
+export interface WeighboneChart {
+  yearWeight: string
+  monthWeight: string
+  dayWeight: string
+  hourWeight: string
+  totalWeight: string
+  totalQian: number
+  poem: string
+  category: string
+  description: string
+}
+
+export interface WeighboneResult {
+  kind: 'weighbone'
+  data: WeighboneChart
+  meta: Record<string, string>
+}
+
+export interface WeighboneInput {
+  year: number
+  month: number
+  day: number
+  hour: number
+  minute: number
+  lang?: string
+  interpretDepth?: 'brief' | 'deep'
+  model?: string
+  stream?: boolean
+}
+
+export const Weighbone = {
+  compute: (input: WeighboneInput) => api.post<WeighboneResult>('/weighbone/compute', input),
+}
+
+export async function streamWeighboneInterpret(
+  input: WeighboneInput,
+  onEvent: (ev: InterpretStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/weighbone/interpret`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    body: JSON.stringify({ ...input, stream: true }),
+    signal,
+  })
+  await consumeSSE(res, onEvent)
+}
+
+// ── divination (抽签/求签) ─────────────────────────────────────────
+
+export interface DivinationChart {
+  number: number
+  title: string
+  tier: string
+  poem: string
+  interpret: string
+  category: string
+  question: string
+}
+
+export interface DivinationResult {
+  kind: 'divination'
+  data: DivinationChart
+  meta: Record<string, string>
+}
+
+export interface DivinationInput {
+  question?: string
+  lang?: string
+  interpretDepth?: 'brief' | 'deep'
+  model?: string
+  stream?: boolean
+}
+
+export const Divination = {
+  compute: (input: DivinationInput) => api.post<DivinationResult>('/divination/compute', input),
+}
+
+export async function streamDivinationInterpret(
+  input: DivinationInput,
+  onEvent: (ev: InterpretStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/divination/interpret`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    body: JSON.stringify({ ...input, stream: true }),
+    signal,
+  })
+  await consumeSSE(res, onEvent)
+}
+
+// ── plumflower (梅花易数) ──────────────────────────────────────────
+
+export interface Hexagram {
+  name: string
+  upperTrig: string
+  lowerTrig: string
+  upperWX: string
+  lowerWX: string
+  lines: [number, number, number, number, number, number]
+}
+
+export interface PlumFlowerChart {
+  method: string
+  original: Hexagram
+  mutual: Hexagram
+  changed: Hexagram
+  changingLine: number
+  bodyTrigram: string
+  useTrigram: string
+  bodyWuXing: string
+  useWuXing: string
+  relationship: string
+  trend: string
+  analysis: string
+}
+
+export interface PlumFlowerResult {
+  kind: 'plumflower'
+  data: PlumFlowerChart
+  meta: Record<string, string>
+}
+
+export interface PlumFlowerInput {
+  year?: number
+  month?: number
+  day?: number
+  hour?: number
+  question?: string
+  lang?: string
+  interpretDepth?: 'brief' | 'deep'
+  model?: string
+  stream?: boolean
+}
+
+export const PlumFlower = {
+  compute: (input: PlumFlowerInput) => api.post<PlumFlowerResult>('/plumflower/compute', input),
+}
+
+export async function streamPlumFlowerInterpret(
+  input: PlumFlowerInput,
+  onEvent: (ev: InterpretStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/plumflower/interpret`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    body: JSON.stringify({ ...input, stream: true }),
+    signal,
+  })
+  await consumeSSE(res, onEvent)
+}

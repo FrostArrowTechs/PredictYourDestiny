@@ -29,6 +29,9 @@ const (
 	KindHuangli        = "huangli"
 	KindDream          = "dream"
 	KindCompatibility  = "compatibility"
+	KindWeighbone      = "weighbone"
+	KindDivination     = "divination"
+	KindPlumFlower     = "plumflower"
 	KindConstellation  = "constellation"
 	KindTarot          = "tarot"
 )

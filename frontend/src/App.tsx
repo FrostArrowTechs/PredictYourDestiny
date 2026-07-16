@@ -11,6 +11,9 @@ const DreamPage = lazy(() => import('./pages/dream/DreamPage'))
 const HuangliPage = lazy(() => import('./pages/huangli/HuangliPage'))
 const ZodiacPage = lazy(() => import('./pages/zodiac/ZodiacPage'))
 const CompatibilityPage = lazy(() => import('./pages/compatibility/CompatibilityPage'))
+const WeighbonePage = lazy(() => import('./pages/weighbone/WeighbonePage'))
+const DivinationPage = lazy(() => import('./pages/divination/DivinationPage'))
+const PlumFlowerPage = lazy(() => import('./pages/plumflower/PlumFlowerPage'))
 
 export default function App() {
   return (
@@ -26,6 +29,9 @@ export default function App() {
             <Route path="/huangli" element={<HuangliPage />} />
             <Route path="/zodiac" element={<ZodiacPage />} />
             <Route path="/compatibility" element={<CompatibilityPage />} />
+            <Route path="/weighbone" element={<WeighbonePage />} />
+            <Route path="/divination" element={<DivinationPage />} />
+            <Route path="/plumflower" element={<PlumFlowerPage />} />
             <Route path="/constellation" element={<ComingSoon titleKey="nav.constellation" />} />
             <Route path="/tarot" element={<ComingSoon titleKey="nav.tarot" />} />
             <Route path="/account" element={<ComingSoon titleKey="nav.account" />} />

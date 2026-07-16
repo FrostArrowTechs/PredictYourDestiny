@@ -1,20 +1,31 @@
 // Top navigation. Routes are wired lazily in App.tsx; this just holds
 // the link list so it's easy to reorder/rename from one place.
+//
+// Primary items show directly in the bar; secondary items collapse into
+// a "更多" dropdown so the navbar never overflows as features grow.
+import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import LanguageSwitcher from './LanguageSwitcher'
 
 export default function Navbar() {
   const { t } = useTranslation()
-  const items = [
+  const [moreOpen, setMoreOpen] = useState(false)
+
+  const primary = [
     { to: '/', label: t('nav.home'), end: true },
     { to: '/bazi', label: t('nav.bazi') },
-    { to: '/dream', label: t('nav.dream') },
     { to: '/zodiac', label: t('nav.zodiac') },
     { to: '/huangli', label: t('nav.huangli') },
+    { to: '/compatibility', label: t('nav.compatibility') },
+  ]
+  const secondary = [
+    { to: '/dream', label: t('nav.dream') },
+    { to: '/weighbone', label: t('nav.weighbone') },
+    { to: '/divination', label: t('nav.divination') },
+    { to: '/plumflower', label: t('nav.plumflower') },
     { to: '/constellation', label: t('nav.constellation') },
     { to: '/tarot', label: t('nav.tarot') },
-    { to: '/compatibility', label: t('nav.compatibility') },
   ]
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
@@ -33,11 +44,41 @@ export default function Navbar() {
           <span>{t('app.name')}</span>
         </NavLink>
         <nav className="hidden flex-1 items-center gap-1 md:flex">
-          {items.map((it) => (
+          {primary.map((it) => (
             <NavLink key={it.to} to={it.to} end={it.end} className={linkClass}>
               {it.label}
             </NavLink>
           ))}
+          {/* 更多 dropdown */}
+          <div className="relative" onMouseLeave={() => setMoreOpen(false)}>
+            <button
+              type="button"
+              onMouseEnter={() => setMoreOpen(true)}
+              onClick={() => setMoreOpen((v) => !v)}
+              className="px-3 py-1.5 rounded-md text-sm text-muted hover:text-fg hover:bg-surface transition-colors"
+            >
+              {t('nav.more')} ▾
+            </button>
+            {moreOpen && (
+              <div className="absolute left-0 top-full mt-1 min-w-[8rem] rounded-lg border border-border bg-surface py-1 shadow-lg">
+                {secondary.map((it) => (
+                  <NavLink
+                    key={it.to}
+                    to={it.to}
+                    onClick={() => setMoreOpen(false)}
+                    className={({ isActive }) =>
+                      [
+                        'block px-4 py-1.5 text-sm transition-colors',
+                        isActive ? 'text-primary bg-surface-2' : 'text-muted hover:text-fg hover:bg-surface-2',
+                      ].join(' ')
+                    }
+                  >
+                    {it.label}
+                  </NavLink>
+                ))}
+              </div>
+            )}
+          </div>
         </nav>
         <div className="ml-auto flex items-center gap-3">
           <NavLink to="/account" className="text-sm text-muted hover:text-fg">
