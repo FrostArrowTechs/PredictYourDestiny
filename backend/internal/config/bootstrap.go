@@ -60,15 +60,47 @@ func Load() (*Bootstrap, error) {
 		return nil, fmt.Errorf("DATABASE_URL is required (set it in .env or the environment)")
 	}
 
-	// Make sure the target database exists. If the DSN points at
-	// `dbname=postgres` (the default on a fresh managed PG), we
-	// attempt to create a dedicated `predictdestiny` database so
-	// tables don't pollute the system catalog.
+	// Normalize the dbname. If the DSN points at the default `postgres`
+	// system database (common on fresh managed PG instances) we rewrite
+	// it to `predictdestiny` so the application's tables don't pollute
+	// the system catalog. Operators can still target any other database
+	// by setting dbname= explicitly.
+	cfg.DatabaseURL = normalizeDBName(cfg.DatabaseURL, "predictdestiny")
+
+	// Make sure the target database exists. If not, we try to create
+	// it. This means a fresh checkout can boot against an empty PG
+	// instance with no manual psql steps.
 	if err := ensureDatabase(cfg.DatabaseURL); err != nil {
 		return nil, fmt.Errorf("ensure database: %w", err)
 	}
 
 	return cfg, nil
+}
+
+// normalizeDBName rewrites the dbname in a libpq DSN. If the DSN
+// has no dbname at all, or targets the system `postgres` database,
+// the target is changed to the supplied default (e.g. "predictdestiny").
+// Any other explicit dbname is left alone so operators can still point
+// at their own dedicated database.
+func normalizeDBName(dsn, defaultDB string) string {
+	parts := strings.Fields(dsn)
+	hasDBName := false
+	for i, p := range parts {
+		if strings.HasPrefix(p, "dbname=") {
+			hasDBName = true
+			current := strings.TrimPrefix(p, "dbname=")
+			// Only rewrite when pointing at the system DB. Explicit
+			// user-chosen databases (including "postgres" used as a
+			// real application DB) are preserved.
+			if current == "postgres" {
+				parts[i] = "dbname=" + defaultDB
+			}
+		}
+	}
+	if !hasDBName {
+		parts = append(parts, "dbname="+defaultDB)
+	}
+	return strings.Join(parts, " ")
 }
 
 // ensureDatabase guarantees that the database named in the DSN
