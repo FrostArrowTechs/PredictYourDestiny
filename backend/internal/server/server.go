@@ -59,6 +59,8 @@ func New(deps Deps) *gin.Engine {
 	weighbone := &handler.WeighboneHandler{Gateway: deps.Gateway}
 	divination := &handler.DivinationHandler{Gateway: deps.Gateway, DB: deps.DB}
 	plumflower := &handler.PlumFlowerHandler{Gateway: deps.Gateway}
+	name := &handler.NameHandler{Gateway: deps.Gateway, DB: deps.DB}
+	astrology := &handler.AstrologyHandler{Gateway: deps.Gateway}
 
 	// --- API routes ---
 	api := r.Group("/api")
@@ -100,10 +102,18 @@ func New(deps Deps) *gin.Engine {
 		api.POST("/divination/compute", divination.Compute)
 		api.POST("/divination/interpret", divination.Interpret)
 
-		// Plum flower (stage 3 batch 1): hexagram divination.
-		api.POST("/plumflower/compute", plumflower.Compute)
-		api.POST("/plumflower/interpret", plumflower.Interpret)
-	}
+			// Plum flower (stage 3 batch 1): hexagram divination.
+			api.POST("/plumflower/compute", plumflower.Compute)
+			api.POST("/plumflower/interpret", plumflower.Interpret)
+
+			// Name (stage 3 batch 2): Five格 name analysis.
+			api.POST("/name/compute", name.Compute)
+			api.POST("/name/interpret", name.Interpret)
+
+			// Astrology (stage 3 batch 2): Western natal chart.
+			api.POST("/astrology/compute", astrology.Compute)
+			api.POST("/astrology/interpret", astrology.Interpret)
+			}
 
 	// Anything under /api/* that isn't matched returns a JSON 404.
 	// Non-/api paths get the same JSON shape — there is no SPA here.

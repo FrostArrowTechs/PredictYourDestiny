@@ -68,6 +68,7 @@ func main() {
 		&model.UsageQuota{},
 		&model.DreamEntry{},
 		&model.DivinationPoem{},
+		&model.CharacterStroke{},
 	); err != nil {
 		log.Fatalf("automigrate: %v", err)
 	}
@@ -81,6 +82,11 @@ func main() {
 	// 3.6) seed divination poems (idempotent)
 	if err := seedDivinationPoems(db); err != nil {
 		log.Printf("warn: seed divination poems: %v", err)
+	}
+
+	// 3.7) seed character strokes (idempotent)
+	if err := seedCharacterStrokes(db); err != nil {
+		log.Printf("warn: seed character strokes: %v", err)
 	}
 
 	// 4) seed default settings
@@ -220,5 +226,32 @@ func seedDivinationPoems(db *gorm.DB) error {
 		return err
 	}
 	log.Printf("seeded %d divination poems", len(poems))
+	return nil
+}
+
+// seedCharacterStrokes loads seed/strokes.json into the character_strokes
+// table. Idempotent: skipped if rows already exist.
+func seedCharacterStrokes(db *gorm.DB) error {
+	data, err := os.ReadFile("seed/strokes.json")
+	if err != nil {
+		return err
+	}
+
+	var strokes []model.CharacterStroke
+	if err := json.Unmarshal(data, &strokes); err != nil {
+		return err
+	}
+
+	var count int64
+	db.Model(&model.CharacterStroke{}).Count(&count)
+	if count > 0 {
+		log.Printf("character_strokes already seeded (%d rows), skipping", count)
+		return nil
+	}
+
+	if err := db.Create(&strokes).Error; err != nil {
+		return err
+	}
+	log.Printf("seeded %d character strokes", len(strokes))
 	return nil
 }

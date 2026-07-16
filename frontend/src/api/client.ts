@@ -865,3 +865,136 @@ export async function streamPlumFlowerInterpret(
   })
   await consumeSSE(res, onEvent)
 }
+
+// ── name (姓名学) ─────────────────────────────────────────────────────
+
+export interface StrokeDetail {
+  char: string
+  strokes: number
+  wuXing: string
+  position: string
+  charIndex: number
+}
+
+export interface NameChart {
+  fullName: string
+  tianGe: number
+  renGe: number
+  diGe: number
+  waiGe: number
+  zongGe: number
+  sanCai: string
+  tianGeLuck: string
+  renGeLuck: string
+  diGeLuck: string
+  waiGeLuck: string
+  zongGeLuck: string
+  score: number
+  scoreDesc: string
+  strokeDetails: StrokeDetail[]
+}
+
+export interface NameResult {
+  kind: 'name'
+  data: NameChart
+  meta: Record<string, string>
+}
+
+export interface NameInput {
+  fullName: string
+  lang?: string
+  interpretDepth?: 'brief' | 'deep'
+  model?: string
+  stream?: boolean
+}
+
+export const Name = {
+  compute: (input: NameInput) => api.post<NameResult>('/name/compute', input),
+}
+
+export async function streamNameInterpret(
+  input: NameInput,
+  onEvent: (ev: InterpretStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/name/interpret`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    body: JSON.stringify({ ...input, stream: true }),
+    signal,
+  })
+  await consumeSSE(res, onEvent)
+}
+
+// ── astrology (占星本命盘) ──────────────────────────────────────────────
+
+export interface PlanetInfo {
+  name: string
+  sign: string
+  degree: number
+  house: number
+  retrograde: boolean
+}
+
+export interface HouseInfo {
+  number: number
+  sign: string
+  degree: number
+}
+
+export interface AspectInfo {
+  planet1: string
+  planet2: string
+  aspect: string
+  orb: number
+  exact: boolean
+}
+
+export interface AstrologyChart {
+  sunSign: string
+  moonSign: string
+  ascendant: string
+  planets: PlanetInfo[]
+  houses: HouseInfo[]
+  aspects: AspectInfo[]
+  chartSummary: string
+}
+
+export interface AstrologyResult {
+  kind: 'astrology'
+  data: AstrologyChart
+  meta: Record<string, string>
+}
+
+export interface AstrologyInput {
+  year: number
+  month: number
+  day: number
+  hour: number
+  minute: number
+  longitude?: number
+  latitude?: number
+  timezone?: number
+  lang?: string
+  interpretDepth?: 'brief' | 'deep'
+  model?: string
+  stream?: boolean
+}
+
+export const Astrology = {
+  compute: (input: AstrologyInput) => api.post<AstrologyResult>('/astrology/compute', input),
+}
+
+export async function streamAstrologyInterpret(
+  input: AstrologyInput,
+  onEvent: (ev: InterpretStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/astrology/interpret`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    body: JSON.stringify({ ...input, stream: true }),
+    signal,
+  })
+  await consumeSSE(res, onEvent)
+}

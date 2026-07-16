@@ -24,6 +24,8 @@ export default function Navbar() {
     { to: '/weighbone', label: t('nav.weighbone') },
     { to: '/divination', label: t('nav.divination') },
     { to: '/plumflower', label: t('nav.plumflower') },
+    { to: '/name', label: t('nav.name') },
+    { to: '/astrology', label: t('nav.astrology') },
     { to: '/constellation', label: t('nav.constellation') },
     { to: '/tarot', label: t('nav.tarot') },
   ]
