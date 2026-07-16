@@ -69,6 +69,7 @@ func main() {
 		&model.DreamEntry{},
 		&model.DivinationPoem{},
 		&model.CharacterStroke{},
+		&model.TarotCard{},
 	); err != nil {
 		log.Fatalf("automigrate: %v", err)
 	}
@@ -87,6 +88,11 @@ func main() {
 	// 3.7) seed character strokes (idempotent)
 	if err := seedCharacterStrokes(db); err != nil {
 		log.Printf("warn: seed character strokes: %v", err)
+	}
+
+	// 3.8) seed tarot cards (idempotent)
+	if err := seedTarotCards(db); err != nil {
+		log.Printf("warn: seed tarot cards: %v", err)
 	}
 
 	// 4) seed default settings
@@ -253,5 +259,32 @@ func seedCharacterStrokes(db *gorm.DB) error {
 		return err
 	}
 	log.Printf("seeded %d character strokes", len(strokes))
+	return nil
+}
+
+// seedTarotCards loads seed/tarot.json (78-card Rider-Waite deck) into
+// the tarot_cards table. Idempotent: skipped if rows already exist.
+func seedTarotCards(db *gorm.DB) error {
+	data, err := os.ReadFile("seed/tarot.json")
+	if err != nil {
+		return err
+	}
+
+	var cards []model.TarotCard
+	if err := json.Unmarshal(data, &cards); err != nil {
+		return err
+	}
+
+	var count int64
+	db.Model(&model.TarotCard{}).Count(&count)
+	if count > 0 {
+		log.Printf("tarot_cards already seeded (%d rows), skipping", count)
+		return nil
+	}
+
+	if err := db.Create(&cards).Error; err != nil {
+		return err
+	}
+	log.Printf("seeded %d tarot cards", len(cards))
 	return nil
 }

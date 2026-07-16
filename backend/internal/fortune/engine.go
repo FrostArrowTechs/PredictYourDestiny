@@ -36,6 +36,7 @@ const (
 	KindTarot          = "tarot"
 	KindName           = "name"
 	KindAstrology      = "astrology"
+	KindZiwei          = "ziwei"
 )
 
 // Gender mirrors the convention used by lunar-go: 1 = male, 0 = female.

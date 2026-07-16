@@ -998,3 +998,190 @@ export async function streamAstrologyInterpret(
   })
   await consumeSSE(res, onEvent)
 }
+
+// ── constellation (星座运势) ──────────────────────────────────────────
+
+export interface ConstellationChart {
+  sign: string
+  signLatin: string
+  element: string
+  quality: string
+  ruler: string
+  dateRange: string
+  strengths: string[]
+  weakness: string[]
+  keywords: string[]
+  overallScore: number
+  careerScore: number
+  loveScore: number
+  wealthScore: number
+  healthScore: number
+  luckyColors: string[]
+  luckyNumbers: number[]
+  luckyDir: string
+  bestMatch: string
+  worstMatch: string
+}
+
+export interface ConstellationResult {
+  kind: 'constellation'
+  data: ConstellationChart
+  meta: Record<string, string>
+}
+
+export interface ConstellationInput {
+  year: number
+  month: number
+  day: number
+  lang?: string
+  interpretDepth?: 'brief' | 'deep'
+  model?: string
+  stream?: boolean
+}
+
+export const Constellation = {
+  compute: (input: ConstellationInput) => api.post<ConstellationResult>('/constellation/compute', input),
+}
+
+export async function streamConstellationInterpret(
+  input: ConstellationInput,
+  onEvent: (ev: InterpretStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/constellation/interpret`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    body: JSON.stringify({ ...input, stream: true }),
+    signal,
+  })
+  await consumeSSE(res, onEvent)
+}
+
+// ── tarot (塔罗) ──────────────────────────────────────────────────────
+
+export interface TarotSpread {
+  id: string
+  name: string
+  count: number
+  labels: string[]
+}
+
+export interface TarotCardDraw {
+  number: number
+  name: string
+  nameLatin: string
+  arcana: string
+  suit: string
+  reversed: boolean
+  positionIndex: number
+  positionLabel: string
+  meaning: string
+  keywords: string
+  element: string
+}
+
+export interface TarotChart {
+  spread: TarotSpread
+  cards: TarotCardDraw[]
+  question: string
+}
+
+export interface TarotResult {
+  kind: 'tarot'
+  data: TarotChart
+  meta: Record<string, string>
+}
+
+export interface TarotInput {
+  spread?: 'single' | 'three' | 'celtic'
+  question?: string
+  lang?: string
+  interpretDepth?: 'brief' | 'deep'
+  model?: string
+  stream?: boolean
+}
+
+export const Tarot = {
+  draw: (input: TarotInput) => api.post<TarotResult>('/tarot/draw', input),
+}
+
+export async function streamTarotInterpret(
+  input: TarotInput,
+  onEvent: (ev: InterpretStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/tarot/interpret`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    body: JSON.stringify({ ...input, stream: true }),
+    signal,
+  })
+  await consumeSSE(res, onEvent)
+}
+
+// ── ziwei (紫微斗数) ──────────────────────────────────────────────────
+
+export interface ZiweiPalace {
+  branch: string
+  position: number
+  name: string
+  isLife: boolean
+  isBody: boolean
+  stars: string[]
+  transform: string
+}
+
+export interface ZiweiChart {
+  solarDate: string
+  lunarDate: string
+  gender: string
+  yearGanZhi: string
+  monthGanZhi: string
+  dayGanZhi: string
+  lifePalaceBranch: string
+  bodyPalaceBranch: string
+  lifeRuler: string
+  bodyRuler: string
+  palaces: ZiweiPalace[]
+  wuXingJu: string
+  daYunStartAge: number
+  daYunForward: boolean
+  mainStarOfLife: string
+}
+
+export interface ZiweiResult {
+  kind: 'ziwei'
+  data: ZiweiChart
+  meta: Record<string, string>
+}
+
+export interface ZiweiInput {
+  year: number
+  month: number
+  day: number
+  hour: number
+  minute: number
+  gender: 0 | 1
+  lang?: string
+  interpretDepth?: 'brief' | 'deep'
+  model?: string
+  stream?: boolean
+}
+
+export const Ziwei = {
+  compute: (input: ZiweiInput) => api.post<ZiweiResult>('/ziwei/compute', input),
+}
+
+export async function streamZiweiInterpret(
+  input: ZiweiInput,
+  onEvent: (ev: InterpretStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/ziwei/interpret`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    body: JSON.stringify({ ...input, stream: true }),
+    signal,
+  })
+  await consumeSSE(res, onEvent)
+}

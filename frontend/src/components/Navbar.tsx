@@ -28,6 +28,7 @@ export default function Navbar() {
     { to: '/astrology', label: t('nav.astrology') },
     { to: '/constellation', label: t('nav.constellation') },
     { to: '/tarot', label: t('nav.tarot') },
+    { to: '/ziwei', label: t('nav.ziwei') },
   ]
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>

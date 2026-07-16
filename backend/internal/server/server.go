@@ -61,6 +61,9 @@ func New(deps Deps) *gin.Engine {
 	plumflower := &handler.PlumFlowerHandler{Gateway: deps.Gateway}
 	name := &handler.NameHandler{Gateway: deps.Gateway, DB: deps.DB}
 	astrology := &handler.AstrologyHandler{Gateway: deps.Gateway}
+	constellation := &handler.ConstellationHandler{Gateway: deps.Gateway}
+	tarot := &handler.TarotHandler{Gateway: deps.Gateway, DB: deps.DB}
+	ziwei := &handler.ZiweiHandler{Gateway: deps.Gateway}
 
 	// --- API routes ---
 	api := r.Group("/api")
@@ -113,6 +116,19 @@ func New(deps Deps) *gin.Engine {
 			// Astrology (stage 3 batch 2): Western natal chart.
 			api.POST("/astrology/compute", astrology.Compute)
 			api.POST("/astrology/interpret", astrology.Interpret)
+
+			// Constellation (stage 3 batch 3): sun-sign daily fortune.
+			api.POST("/constellation/compute", constellation.Compute)
+			api.POST("/constellation/interpret", constellation.Interpret)
+
+			// Tarot (stage 3 batch 3): card draw + spread interpretation.
+			api.POST("/tarot/draw", tarot.Draw)
+			api.POST("/tarot/compute", tarot.Draw)
+			api.POST("/tarot/interpret", tarot.Interpret)
+
+			// Ziwei (stage 3 batch 3): 紫微斗数 natal chart.
+			api.POST("/ziwei/compute", ziwei.Compute)
+			api.POST("/ziwei/interpret", ziwei.Interpret)
 			}
 
 	// Anything under /api/* that isn't matched returns a JSON 404.
