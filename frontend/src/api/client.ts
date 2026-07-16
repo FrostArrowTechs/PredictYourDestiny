@@ -314,9 +314,9 @@ export interface DreamMatch {
 }
 
 export interface DreamChart {
-  question: string
+  description: string
   matches: DreamMatch[]
-  totalMatches: number
+  summary: string
 }
 
 export interface DreamResult {
@@ -326,7 +326,7 @@ export interface DreamResult {
 }
 
 export interface DreamInput {
-  question: string
+  description: string
   lang?: string
   interpretDepth?: 'brief' | 'deep'
   model?: string
