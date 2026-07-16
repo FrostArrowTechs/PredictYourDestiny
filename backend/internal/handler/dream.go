@@ -2,86 +2,78 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"predictdestiny/internal/ai"
 	"predictdestiny/internal/ai/prompt"
 	"predictdestiny/internal/fortune"
 )
 
-// DreamHandler exposes dream interpretation endpoints.
+// DreamHandler exposes the dream interpretation endpoints.
 //
-// POST /api/dream/compute   — search matching symbols, no AI tokens
-// POST /api/dream/interpret — AI reading with streaming support
+// /api/dream/compute  — keyword search against reference table, free.
+// /api/dream/interpret — AI reading based on matched traditional meanings.
 type DreamHandler struct {
 	Gateway ai.Gateway
-	DB      interface{} // *gorm.DB, typed loosely to avoid import
+	DB      *gorm.DB
 }
 
-// dreamComputeReq is the input for dream interpretation.
+// dreamComputeReq is the input for both /compute and /interpret.
 type dreamComputeReq struct {
-	Description    string `json:"description" binding:"required,min=2"`
+	Question       string `json:"question" binding:"required"`
 	Lang           string `json:"lang"`
 	InterpretDepth string `json:"interpretDepth"`
 	Model          string `json:"model"`
 	Stream         bool   `json:"stream"`
 }
 
-// Compute searches for matching dream symbols and returns the result.
+// toFortuneInput maps the wire request into the engine's Input.
+func (r dreamComputeReq) toFortuneInput() fortune.Input {
+	lang := r.Lang
+	if lang == "" {
+		lang = "zh-CN"
+	}
+	return fortune.Input{
+		Question:       r.Question,
+		Lang:           lang,
+		InterpretDepth: r.InterpretDepth,
+	}
+}
+
+// Compute runs the dream engine and returns matched traditional meanings.
 func (h *DreamHandler) Compute(c *gin.Context) {
 	var req dreamComputeReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
-	eng, ok := fortune.Fortune(fortune.KindDream)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "dream engine unavailable"})
-		return
-	}
-
-	// Build Input from request (use Question field for dream description)
-	input := fortune.Input{
-		Question:       req.Description,
-		Lang:           req.Lang,
-		InterpretDepth: req.InterpretDepth,
-	}
-
-	res, err := eng.Compute(input)
+	res, err := h.computeChart(req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
 	c.JSON(http.StatusOK, res)
 }
 
-// Interpret searches for symbols then asks AI for a reading.
+// computeChart runs the dream engine with the DB dependency.
+func (h *DreamHandler) computeChart(req dreamComputeReq) (*fortune.Result, error) {
+	eng := fortune.DreamEngine{DB: h.DB}
+	return eng.Compute(req.toFortuneInput())
+}
+
+// Interpret computes matches then asks the AI gateway for a personalized reading.
 func (h *DreamHandler) Interpret(c *gin.Context) {
 	var req dreamComputeReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
-	eng, ok := fortune.Fortune(fortune.KindDream)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "dream engine unavailable"})
-		return
-	}
-
-	// Build Input from request
-	input := fortune.Input{
-		Question:       req.Description,
-		Lang:           req.Lang,
-		InterpretDepth: req.InterpretDepth,
-	}
-
-	res, err := eng.Compute(input)
+	res, err := h.computeChart(req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -92,7 +84,7 @@ func (h *DreamHandler) Interpret(c *gin.Context) {
 		return
 	}
 
-	spec, err := prompt.DreamBuild(input, res)
+	spec, err := prompt.DreamBuild(req.toFortuneInput(), res)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -105,7 +97,7 @@ func (h *DreamHandler) Interpret(c *gin.Context) {
 	}
 
 	msgs := ai.MessagesFromPrompt(spec)
-	opts := ai.Options{Temperature: 0.7}
+	opts := ai.Options{Temperature: 0.8} // slightly higher for creative interpretation
 
 	if req.Stream {
 		h.interpretStream(c, model, msgs, opts)
@@ -114,7 +106,7 @@ func (h *DreamHandler) Interpret(c *gin.Context) {
 	h.interpretSync(c, model, msgs, opts)
 }
 
-// resolveModel picks the model to use.
+// resolveModel validates and resolves the model ID.
 func (h *DreamHandler) resolveModel(requested string, spec *fortune.PromptSpec) string {
 	cat := h.Gateway.ListModels()
 	if requested != "" {
@@ -135,11 +127,11 @@ func (h *DreamHandler) resolveModel(requested string, spec *fortune.PromptSpec) 
 	return ai.ResolveModel(h.Gateway, "")
 }
 
+// interpretSync does one blocking completion.
 func (h *DreamHandler) interpretSync(c *gin.Context, model string, msgs []ai.Message, opts ai.Options) {
-	ctx := context.Background()
-	resp, err := h.Gateway.Chat(ctx, model, msgs, opts)
+	resp, err := h.Gateway.Chat(c.Request.Context(), model, msgs, opts)
 	if err != nil {
-		c.JSON(mapGenericAIError(err), gin.H{"error": err.Error()})
+		c.JSON(mapAIError(err), gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
@@ -150,6 +142,7 @@ func (h *DreamHandler) interpretSync(c *gin.Context, model string, msgs []ai.Mes
 	})
 }
 
+// interpretStream forwards gateway deltas to the client as SSE.
 func (h *DreamHandler) interpretStream(c *gin.Context, model string, msgs []ai.Message, opts ai.Options) {
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
 	c.Writer.Header().Set("Cache-Control", "no-cache")
@@ -180,16 +173,36 @@ func (h *DreamHandler) interpretStream(c *gin.Context, model string, msgs []ai.M
 				ev.Usage.PromptTokens, ev.Usage.CompletionTokens,
 				ev.Usage.TotalTokens, ev.Usage.ReasoningTokens)
 		} else {
-			json = fmt.Sprintf(`{"content":%q,"reasoning":%q}`, ev.Content, ev.Reasoning)
+			json = fmt.Sprintf(`{"content":%q,"reasoning":%q}`,
+				ev.Content, ev.Reasoning)
 		}
 		writeEvent(json)
 	})
-
 	if err != nil {
 		if c.Writer.Written() {
 			writeEvent(fmt.Sprintf(`{"error":%q}`, err.Error()))
 		} else {
-			c.JSON(mapGenericAIError(err), gin.H{"error": err.Error()})
+			c.JSON(mapAIError(err), gin.H{"error": err.Error()})
 		}
+	}
+}
+
+// mapAIError translates gateway errors to HTTP statuses.
+func mapDreamAIError(err error) int {
+	switch {
+	case errors.Is(err, ai.ErrNotConfigured):
+		return http.StatusServiceUnavailable
+	case errors.Is(err, ai.ErrKeyInvalid):
+		return http.StatusUnauthorized
+	case errors.Is(err, ai.ErrRateLimited):
+		return http.StatusTooManyRequests
+	case errors.Is(err, ai.ErrInsufficient):
+		return http.StatusPaymentRequired
+	case errors.Is(err, ai.ErrModelNotFound):
+		return http.StatusNotFound
+	case errors.Is(err, ai.ErrTimeout):
+		return http.StatusGatewayTimeout
+	default:
+		return http.StatusBadGateway
 	}
 }

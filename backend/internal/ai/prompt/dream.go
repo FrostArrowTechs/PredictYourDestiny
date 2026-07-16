@@ -1,3 +1,9 @@
+// Package prompt provides the dream interpretation prompt builder.
+//
+// The prompt combines traditional 周公解梦 meanings (from the reference
+// table) with a personalized AI reading. The user provides their dream
+// description, and the AI interprets it using both the matched traditional
+// meanings and modern psychological insight.
 package prompt
 
 import (
@@ -7,105 +13,116 @@ import (
 	"predictdestiny/internal/fortune"
 )
 
-// DreamBuild creates a prompt for dream interpretation.
-func DreamBuild(input fortune.Input, result *fortune.Result) (*fortune.PromptSpec, error) {
-	chart, ok := result.Data.(*fortune.DreamResult)
-	if !ok {
-		return nil, fmt.Errorf("dream: unexpected result type")
-	}
+// dreamLang bundles per-language strings for dream prompts.
+type dreamLang struct {
+	langName   string
+	persona    string
+	rules      []string
+	disclaimer string
+	briefHint  string
+	deepHint   string
+}
 
-	lang := input.Lang
-	if lang == "" {
-		lang = "zh-CN"
-	}
-
-	bundles := map[string]struct {
-		system string
-		tmpl   string
-	}{
-		"zh-CN": {
-			system: `你是一位精通周公解梦的解梦师，擅长运用传统文化知识解读梦境符号的心理和象征意义。你的解读需要：
-
-1. 传统与现代结合：引用传统解梦含义，同时结合心理学视角
-2. 积极正向：引导用户正面理解梦境，避免消极暗示
-3. 实用建议：给出可操作的日常建议
-4. 免责声明：解梦为传统文化研究，仅供参考娱乐
-
-请用温和、专业的语言解读，帮助用户理解梦境背后的含义。`,
-			tmpl: `请解读以下梦境：
-
-【梦境描述】
-%s
-
-【匹配的传统解梦符号】
-%s
-
-【符号概要】
-%s
-
-请给出：
-1. 传统解梦：根据匹配的符号，解读可能的吉凶含义
-2. 心理分析：从心理学角度分析梦境可能反映的内心状态
-3. 生活启示：梦境可能暗示的现实问题或机会
-4. 行动建议：针对梦境内容的具体建议`,
+var dreamLangs = map[string]dreamLang{
+	"zh-CN": {
+		langName: "简体中文",
+		persona:  "你是一位精通周公解梦与现代心理学的解梦师，擅长将传统解梦智慧与当代心理学相结合，为梦者提供温暖、有启发性的解读。",
+		rules: []string{
+			"使用简体中文回答",
+			"语气温暖、富有同理心，避免宿命论或负面暗示",
+			"结合传统解梦含义与心理学视角，给出建设性的解读",
+			"不输出医疗诊断或心理治疗方案",
+			"结尾附简短免责声明",
 		},
-		"zh-TW": {
-			system: `你是一位精通周公解夢的解夢師，擅長運用傳統文化知識解讀夢境符號的心理和象徵意義。你的解讀需要：
-
-1. 傳統與現代結合：引用傳統解夢含義，同時結合心理學視角
-2. 積極正向：引導用戶正面理解夢境，避免消極暗示
-3. 實用建議：給出可操作的日常建議
-4. 免責聲明：解夢為傳統文化研究，僅供參考娛樂
-
-請用溫和、專業的語言解讀，幫助用戶理解夢境背後的含義。`,
-			tmpl: `請解讀以下夢境：
-
-【夢境描述】
-%s
-
-【匹配的傳統解夢符號】
-%s
-
-【符號概要】
-%s
-
-請給出：
-1. 傳統解夢：根據匹配的符號，解讀可能的吉凶含義
-2. 心理分析：從心理學角度分析夢境可能反映的內心狀態
-3. 生活啟示：夢境可能暗示的現實問題或機會
-4. 行動建議：針對夢境內容的具體建議`,
+		disclaimer: "解梦仅供参考，梦境多反映潜意识，请理性看待。",
+		briefHint:  "请给出简明扼要的解读（约 300-500 字），聚焦梦境的核心象征与启示。",
+		deepHint:   "请进行深度解读，结合梦者可能的现实处境，分析梦境的象征意义、心理投射与生活启示（约 800-1200 字）。",
+	},
+	"zh-TW": {
+		langName: "繁體中文",
+		persona:  "你是一位精通周公解夢與現代心理學的解夢師，擅長將傳統解夢智慧與當代心理學相結合，為夢者提供溫暖、有啟發性的解讀。",
+		rules: []string{
+			"使用繁體中文回答",
+			"語氣溫暖、富有同理心，避免宿命論或負面暗示",
+			"結合傳統解夢含義與心理學視角，給出建設性的解讀",
+			"不輸出醫療診斷或心理治療方案",
+			"結尾附簡短免責聲明",
 		},
-	}
+		disclaimer: "解夢僅供參考，夢境多反映潛意識，請理性看待。",
+		briefHint:  "請給出簡明扼要的解讀（約 300-500 字），聚焦夢境的核心象徵與啟示。",
+		deepHint:   "請進行深度解讀，結合夢者可能的現實處境，分析夢境的象徵意義、心理投射與生活啟示（約 800-1200 字）。",
+	},
+}
 
-	bundle, ok := bundles[lang]
+func resolveDreamLang(lang string) dreamLang {
+	if l, ok := dreamLangs[lang]; ok {
+		return l
+	}
+	return dreamLangs["zh-CN"]
+}
+
+// DreamBuild constructs the AI prompt for a dream interpretation.
+func DreamBuild(in fortune.Input, res *fortune.Result) (*fortune.PromptSpec, error) {
+	if res == nil || res.Kind != fortune.KindDream {
+		return nil, fmt.Errorf("prompt/dream: expected kind %q, got %q", fortune.KindDream, kindOrEmpty(res))
+	}
+	chart, ok := res.Data.(*fortune.DreamChart)
 	if !ok {
-		bundle = bundles["zh-CN"]
+		return nil, fmt.Errorf("prompt/dream: result.Data is not *fortune.DreamChart (got %T)", res.Data)
 	}
 
-	// Build matched symbols string
-	symbolsStr := "无匹配符号"
-	if len(chart.Matches) > 0 {
-		lines := make([]string, 0, len(chart.Matches))
-		for _, m := range chart.Matches {
-			lines = append(lines, fmt.Sprintf("- 【%s】%s：\n  %s", m.Keyword, m.Category, m.Meaning))
-		}
-		symbolsStr = strings.Join(lines, "\n")
+	depth := in.InterpretDepth
+	if depth == "" {
+		depth = fortune.DepthBrief
 	}
-
-	user := fmt.Sprintf(bundle.tmpl,
-		chart.Description,
-		symbolsStr,
-		chart.Summary,
-	)
-
 	tier := fortune.TierFree
-	if input.InterpretDepth == fortune.DepthDeep {
+	if depth == fortune.DepthDeep {
 		tier = fortune.TierPaid
 	}
 
+	L := resolveDreamLang(in.Lang)
+	system := buildDreamSystem(L)
+	user := buildDreamUser(L, chart, depth)
+
 	return &fortune.PromptSpec{
-		System: bundle.system,
+		System: system,
 		User:   user,
 		Tier:   tier,
 	}, nil
+}
+
+func buildDreamSystem(L dreamLang) string {
+	var b strings.Builder
+	b.WriteString(L.persona)
+	b.WriteString("\n\n请根据用户提供的梦境描述进行解读。要求：\n")
+	for i, r := range L.rules {
+		fmt.Fprintf(&b, "%d. %s\n", i+1, r)
+	}
+	fmt.Fprintf(&b, "\n免责声明：%s", L.disclaimer)
+	return b.String()
+}
+
+func buildDreamUser(L dreamLang, c *fortune.DreamChart, depth string) string {
+	var b strings.Builder
+	b.WriteString("【梦境描述】\n")
+	b.WriteString(c.Question + "\n")
+
+	if len(c.Matches) > 0 {
+		b.WriteString("\n【传统解梦参考】\n")
+		b.WriteString("以下为周公解梦中与您梦境相关的传统释义，供参考：\n\n")
+		for i, m := range c.Matches {
+			fmt.Fprintf(&b, "%d. %s（%s）：%s\n", i+1, m.Keyword, m.Category, m.Meaning)
+		}
+	} else {
+		b.WriteString("\n【提示】\n")
+		b.WriteString("未在传统解梦库中找到完全匹配的条目，请根据梦境内容进行自由解读。\n")
+	}
+
+	b.WriteString("\n【解读要求】\n")
+	if depth == fortune.DepthDeep {
+		b.WriteString(L.deepHint)
+	} else {
+		b.WriteString(L.briefHint)
+	}
+	return b.String()
 }
