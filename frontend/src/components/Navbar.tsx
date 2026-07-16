@@ -4,13 +4,17 @@
 // Primary items show directly in the bar; secondary items collapse into
 // a "更多" dropdown so the navbar never overflows as features grow.
 import { useState } from 'react'
-import { NavLink } from 'react-router-dom'
+import { NavLink, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { LogIn, UserPlus } from 'lucide-react'
 import LanguageSwitcher from './LanguageSwitcher'
+import ThemeSwitcher from './ThemeSwitcher'
+import { useAuth } from '../auth/AuthContext'
 
 export default function Navbar() {
   const { t } = useTranslation()
   const [moreOpen, setMoreOpen] = useState(false)
+  const { user, isLoading } = useAuth()
 
   const primary = [
     { to: '/', label: t('nav.home'), end: true },
@@ -83,10 +87,29 @@ export default function Navbar() {
             )}
           </div>
         </nav>
-        <div className="ml-auto flex items-center gap-3">
-          <NavLink to="/account" className="text-sm text-muted hover:text-fg">
-            {t('nav.account')}
+        <div className="ml-auto flex items-center gap-2">
+          {!isLoading && !user && (
+            <>
+              <Link
+                to="/login"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm text-muted hover:text-fg hover:bg-surface transition-colors"
+              >
+                <LogIn className="w-4 h-4" />
+                {t('common.login')}
+              </Link>
+              <Link
+                to="/register"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+              >
+                <UserPlus className="w-4 h-4" />
+                {t('common.register')}
+              </Link>
+            </>
+          )}
+          <NavLink to="/account" className="text-sm text-muted hover:text-fg px-3 py-1.5">
+            {user ? user.displayName || user.email : t('nav.account')}
           </NavLink>
+          <ThemeSwitcher />
           <LanguageSwitcher />
         </div>
       </div>

@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -34,6 +35,14 @@ import (
 	"predictdestiny/internal/server"
 	"predictdestiny/internal/store"
 	"predictdestiny/internal/version"
+)
+
+// Default admin credentials. Override via env vars:
+//   ADMIN_EMAIL  (default: admin@admin.com)
+//   ADMIN_PASSWORD (default: admin123456)
+const (
+	defaultAdminEmail    = "admin@admin.com"
+	defaultAdminPassword = "admin123456"
 )
 
 func main() {
@@ -109,6 +118,11 @@ func main() {
 		// 3.9) seed membership tiers (idempotent)
 		if err := seedMembershipTiers(db); err != nil {
 			log.Printf("warn: seed membership tiers: %v", err)
+		}
+
+		// 3.10) seed default admin account (idempotent)
+		if err := seedAdminUser(db); err != nil {
+			log.Printf("warn: seed admin user: %v", err)
 		}
 
 		// 4) seed default settings
@@ -344,5 +358,56 @@ func seedTarotCards(db *gorm.DB) error {
 				log.Printf("seeded membership tier: %s", tier.Code)
 			}
 		}
+		return nil
+	}
+
+	// seedAdminUser creates a default admin account on first run so
+	// the operator can log in to the admin panel immediately.
+	//
+	// Credentials are read from env (ADMIN_EMAIL / ADMIN_PASSWORD) and
+	// fall back to a known default for local dev. Production deployments
+	// should always set these via the platform's secret manager.
+	//
+	// Idempotent: if any admin already exists, this is a no-op so
+	// password changes via the admin panel are preserved across restarts.
+	func seedAdminUser(db *gorm.DB) error {
+		var count int64
+		if err := db.Model(&model.User{}).Where("role = ?", "admin").Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			return nil
+		}
+
+		email := defaultAdminEmail
+		if v := strings.TrimSpace(os.Getenv("ADMIN_EMAIL")); v != "" {
+			email = v
+		}
+		password := defaultAdminPassword
+		if v := strings.TrimSpace(os.Getenv("ADMIN_PASSWORD")); v != "" {
+			password = v
+		}
+
+		hashed, err := auth.HashPassword(password)
+		if err != nil {
+			return err
+		}
+
+		admin := model.User{
+			Email:       email,
+			Password:    hashed,
+			DisplayName: "Administrator",
+			Role:        "admin",
+		}
+		if err := db.Create(&admin).Error; err != nil {
+			return err
+		}
+
+		log.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		log.Printf("🔑 Default admin account created")
+		log.Printf("   Email:    %s", email)
+		log.Printf("   Password: %s", password)
+		log.Printf("   (Change it from the admin panel after first login)")
+		log.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 		return nil
 	}

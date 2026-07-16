@@ -5,7 +5,9 @@
    with @theme and exposes them as utilities (e.g. bg-bg, text-fg).
    A calm, mystical purple palette suits a divination site.
    ──────────────────────────────────────────────────────────── */
+
 @theme {
+  /* Dark mode (default) */
   --color-bg: #0f0a1e;
   --color-surface: #1a1230;
   --color-surface-2: #241a44;
@@ -14,11 +16,30 @@
   --color-border: #2e234f;
   --color-primary: #a78bfa;
   --color-primary-hover: #c4b5fd;
+  --color-primary-foreground: #0f0a1e;
   --color-accent: #fbbf24;
+}
+
+/* Light mode: applied when <html> has data-theme="light" */
+[data-theme='light'] {
+  --color-bg: #faf8ff;
+  --color-surface: #ffffff;
+  --color-surface-2: #f3eeff;
+  --color-fg: #1e1b2e;
+  --color-muted: #6b6580;
+  --color-border: #e5e0f0;
+  --color-primary: #7c3aed;
+  --color-primary-hover: #6d28d9;
+  --color-primary-foreground: #ffffff;
+  --color-accent: #d97706;
 }
 
 :root {
   color-scheme: dark;
+}
+
+[data-theme='light'] {
+  color-scheme: light;
 }
 
 html,
@@ -36,4 +57,12 @@ body {
   color: var(--color-fg);
   font-family: 'Inter', system-ui, 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+[data-theme='light'] body {
+  background:
+    radial-gradient(1200px 600px at 80% -10%, rgba(124, 58, 237, 0.08), transparent 60%),
+    radial-gradient(900px 500px at 0% 100%, rgba(217, 119, 6, 0.04), transparent 55%),
+    var(--color-bg);
 }

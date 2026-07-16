@@ -1,6 +1,30 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Search, Users as UsersIcon, Shield, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useAuth } from '../App'
+import { PageHeader, EmptyState, LoadingState } from '../components/PageHeader'
+import { Card } from '../components/ui/Card'
+import { Button } from '../components/ui/Button'
+import { Input } from '../components/ui/Input'
+import { Badge } from '../components/ui/Badge'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../components/ui/Table'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/Dialog'
+import { Select } from '../components/ui/Select'
+import { Label } from '../components/ui/Label'
 
 interface User {
   id: number
@@ -35,27 +59,26 @@ export default function UsersPage() {
     loadTiers()
   }, [token, page])
 
-  const loadUsers = () => {
+  const loadUsers = async () => {
     setIsLoading(true)
     const params = new URLSearchParams({ page: String(page), limit: '20' })
     if (search) params.set('search', search)
-    fetch(`/api/admin/users?${params}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(res => res.json())
-      .then(data => {
-        setUsers(data.users || [])
-        setTotal(data.total || 0)
+    try {
+      const res = await fetch(`/api/admin/users?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
       })
-      .finally(() => setIsLoading(false))
+      const data = await res.json()
+      setUsers(data.users || [])
+      setTotal(data.total || 0)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
-  const loadTiers = () => {
-    fetch('/api/admin/tiers', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(res => res.json())
-      .then(data => setTiers(data.tiers || []))
+  const loadTiers = async () => {
+    const res = await fetch('/api/admin/tiers', { headers: { Authorization: `Bearer ${token}` } })
+    const data = await res.json()
+    setTiers(data.tiers || [])
   }
 
   const handleSearch = (e: React.FormEvent) => {
@@ -64,9 +87,9 @@ export default function UsersPage() {
     loadUsers()
   }
 
-  const handleUpdateTier = async (userId: number) => {
-    if (!selectedTier) return
-    await fetch(`/api/admin/users/${userId}/tier`, {
+  const handleUpdateTier = async () => {
+    if (!editingUser || !selectedTier) return
+    await fetch(`/api/admin/users/${editingUser.id}/tier`, {
       method: 'PUT',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -75,129 +98,152 @@ export default function UsersPage() {
       body: JSON.stringify({ tierId: selectedTier }),
     })
     setEditingUser(null)
+    setSelectedTier(0)
     loadUsers()
   }
 
+  const totalPages = Math.ceil(total / 20)
+
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">{t('users.title')}</h1>
-      
-      {/* Search */}
-      <form onSubmit={handleSearch} className="mb-4">
-        <input
-          type="text"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder={t('users.search')}
-          className="px-4 py-2 border rounded-lg w-64"
-        />
-        <button type="submit" className="ml-2 px-4 py-2 bg-blue-600 text-white rounded-lg">
-          {t('common.confirm')}
-        </button>
-      </form>
+      <PageHeader
+        title={t('users.title')}
+        description={`共 ${total} 位用户`}
+      />
 
-      {/* Table */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-4 py-3 text-left">{t('users.email')}</th>
-              <th className="px-4 py-3 text-left">{t('users.displayName')}</th>
-              <th className="px-4 py-3 text-left">{t('users.role')}</th>
-              <th className="px-4 py-3 text-left">{t('users.tier')}</th>
-              <th className="px-4 py-3 text-left">{t('users.createdAt')}</th>
-              <th className="px-4 py-3 text-left">{t('users.actions')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading ? (
-              <tr><td colSpan={6} className="px-4 py-8 text-center">{t('common.loading')}</td></tr>
-            ) : users.length === 0 ? (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-500">No users found</td></tr>
-            ) : (
-              users.map(user => (
-                <tr key={user.id} className="border-t">
-                  <td className="px-4 py-3">{user.email}</td>
-                  <td className="px-4 py-3">{user.displayName || '-'}</td>
-                  <td className="px-4 py-3">
-                    <span className={`px-2 py-1 rounded text-sm ${user.role === 'admin' ? 'bg-red-100 text-red-800' : 'bg-gray-100'}`}>
-                      {user.role === 'admin' ? t('users.roleAdmin') : t('users.roleUser')}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">{user.tierName || '-'}</td>
-                  <td className="px-4 py-3 text-sm text-gray-500">
-                    {new Date(user.createdAt).toLocaleDateString()}
-                  </td>
-                  <td className="px-4 py-3">
-                    <button
+      <Card>
+        {/* Search bar */}
+        <div className="p-4 border-b border-slate-200">
+          <form onSubmit={handleSearch} className="flex items-center gap-2 max-w-md">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <Input
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder={t('users.search')}
+                className="pl-9"
+              />
+            </div>
+            <Button type="submit" variant="outline">
+              搜索
+            </Button>
+          </form>
+        </div>
+
+        {/* Table */}
+        {isLoading ? (
+          <LoadingState />
+        ) : users.length === 0 ? (
+          <EmptyState icon={UsersIcon} title="暂无用户" description="没有找到符合条件的用户" />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('users.email')}</TableHead>
+                <TableHead>{t('users.displayName')}</TableHead>
+                <TableHead>{t('users.role')}</TableHead>
+                <TableHead>{t('users.tier')}</TableHead>
+                <TableHead>{t('users.createdAt')}</TableHead>
+                <TableHead className="text-right">{t('users.actions')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {users.map(user => (
+                <TableRow key={user.id}>
+                  <TableCell className="font-medium text-slate-900">{user.email}</TableCell>
+                  <TableCell className="text-slate-600">{user.displayName || '—'}</TableCell>
+                  <TableCell>
+                    {user.role === 'admin' ? (
+                      <Badge variant="default" className="gap-1">
+                        <Shield className="w-3 h-3" />
+                        {t('users.roleAdmin')}
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary">{t('users.roleUser')}</Badge>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {user.tierName ? (
+                      <Badge variant="outline">{user.tierName}</Badge>
+                    ) : (
+                      <span className="text-slate-400">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-slate-500 text-xs">
+                    {new Date(user.createdAt).toLocaleDateString('zh-CN')}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={() => setEditingUser(user)}
-                      className="text-blue-600 hover:underline"
                     >
                       {t('users.editTier')}
-                    </button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Pagination */}
-      {total > 20 && (
-        <div className="mt-4 flex gap-2">
-          <button
-            onClick={() => setPage(p => Math.max(1, p - 1))}
-            disabled={page === 1}
-            className="px-4 py-2 bg-gray-200 rounded disabled:opacity-50"
-          >
-            Previous
-          </button>
-          <span className="px-4 py-2">Page {page}</span>
-          <button
-            onClick={() => setPage(p => p + 1)}
-            disabled={page * 20 >= total}
-            className="px-4 py-2 bg-gray-200 rounded disabled:opacity-50"
-          >
-            Next
-          </button>
-        </div>
-      )}
-
-      {/* Edit Tier Modal */}
-      {editingUser && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-lg w-96">
-            <h2 className="text-lg font-bold mb-4">{t('users.editTier')}</h2>
-            <p className="text-sm text-gray-600 mb-4">{editingUser.email}</p>
-            <select
-              value={selectedTier}
-              onChange={e => setSelectedTier(Number(e.target.value))}
-              className="w-full px-3 py-2 border rounded mb-4"
-            >
-              <option value={0}>Select tier...</option>
-              {tiers.map(tier => (
-                <option key={tier.id} value={tier.id}>{tier.name} ({tier.code})</option>
+                    </Button>
+                  </TableCell>
+                </TableRow>
               ))}
-            </select>
-            <div className="flex gap-2">
-              <button
-                onClick={() => handleUpdateTier(editingUser.id)}
-                disabled={!selectedTier}
-                className="flex-1 py-2 bg-blue-600 text-white rounded disabled:opacity-50"
+            </TableBody>
+          </Table>
+        )}
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between p-4 border-t border-slate-200">
+            <p className="text-sm text-slate-500">
+              第 {page} 页 / 共 {totalPages} 页
+            </p>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={page === 1}
               >
-                {t('common.confirm')}
-              </button>
-              <button
-                onClick={() => setEditingUser(null)}
-                className="flex-1 py-2 bg-gray-200 rounded"
+                <ChevronLeft className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
               >
-                {t('common.cancel')}
-              </button>
+                <ChevronRight className="w-4 h-4" />
+              </Button>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </Card>
+
+      {/* Edit Tier Dialog */}
+      <Dialog open={!!editingUser} onOpenChange={open => !open && setEditingUser(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('users.editTier')}</DialogTitle>
+            <DialogDescription>{editingUser?.email}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label>选择会员层级</Label>
+            <Select value={selectedTier} onChange={e => setSelectedTier(Number(e.target.value))}>
+              <option value={0}>请选择...</option>
+              {tiers.map(tier => (
+                <option key={tier.id} value={tier.id}>
+                  {tier.name} ({tier.code})
+                </option>
+              ))}
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingUser(null)}>
+              {t('common.cancel')}
+            </Button>
+            <Button onClick={handleUpdateTier} disabled={!selectedTier}>
+              {t('common.save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

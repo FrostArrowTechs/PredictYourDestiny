@@ -1,6 +1,30 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Plus, Bot, Trash2, Edit, Check, Star } from 'lucide-react'
 import { useAuth } from '../App'
+import { PageHeader, EmptyState, LoadingState } from '../components/PageHeader'
+import { Card } from '../components/ui/Card'
+import { Button } from '../components/ui/Button'
+import { Input } from '../components/ui/Input'
+import { Textarea } from '../components/ui/Textarea'
+import { Label } from '../components/ui/Label'
+import { Badge } from '../components/ui/Badge'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../components/ui/Table'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/Dialog'
 
 interface Provider {
   id: number
@@ -23,7 +47,7 @@ export default function ProvidersPage() {
     name: '',
     baseUrl: '',
     apiKey: '',
-    models: '',
+    models: '[]',
     isDefault: false,
     isEnabled: true,
   })
@@ -32,23 +56,22 @@ export default function ProvidersPage() {
     loadProviders()
   }, [token])
 
-  const loadProviders = () => {
+  const loadProviders = async () => {
     setIsLoading(true)
-    fetch('/api/admin/providers', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(res => res.json())
-      .then(data => {
-        setProviders(data.providers || [])
+    try {
+      const res = await fetch('/api/admin/providers', {
+        headers: { Authorization: `Bearer ${token}` },
       })
-      .finally(() => setIsLoading(false))
+      const data = await res.json()
+      setProviders(data.providers || [])
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const url = editingProvider
-      ? `/api/admin/providers/${editingProvider.id}`
-      : '/api/admin/providers'
+    const url = editingProvider ? `/api/admin/providers/${editingProvider.id}` : '/api/admin/providers'
     const method = editingProvider ? 'PUT' : 'POST'
 
     await fetch(url, {
@@ -62,12 +85,12 @@ export default function ProvidersPage() {
 
     setShowModal(false)
     setEditingProvider(null)
-    setForm({ name: '', baseUrl: '', apiKey: '', models: '', isDefault: false, isEnabled: true })
+    setForm({ name: '', baseUrl: '', apiKey: '', models: '[]', isDefault: false, isEnabled: true })
     loadProviders()
   }
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('Are you sure?')) return
+  const handleDelete = async (id: number, name: string) => {
+    if (!confirm(`确定要删除供应商 "${name}" 吗？`)) return
     await fetch(`/api/admin/providers/${id}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${token}` },
@@ -83,7 +106,13 @@ export default function ProvidersPage() {
     loadProviders()
   }
 
-  const openEditModal = (provider: Provider) => {
+  const openCreate = () => {
+    setEditingProvider(null)
+    setForm({ name: '', baseUrl: '', apiKey: '', models: '[]', isDefault: false, isEnabled: true })
+    setShowModal(true)
+  }
+
+  const openEdit = (provider: Provider) => {
     setEditingProvider(provider)
     setForm({
       name: provider.name,
@@ -98,161 +127,179 @@ export default function ProvidersPage() {
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">{t('providers.title')}</h1>
-        <button
-          onClick={() => setShowModal(true)}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg"
-        >
-          {t('providers.add')}
-        </button>
-      </div>
+      <PageHeader
+        title={t('providers.title')}
+        description="管理 AI 模型供应商，可随时切换默认或新增"
+        actions={
+          <Button onClick={openCreate}>
+            <Plus className="w-4 h-4 mr-1.5" />
+            {t('providers.add')}
+          </Button>
+        }
+      />
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-4 py-3 text-left">{t('providers.name')}</th>
-              <th className="px-4 py-3 text-left">{t('providers.baseUrl')}</th>
-              <th className="px-4 py-3 text-left">{t('providers.isDefault')}</th>
-              <th className="px-4 py-3 text-left">{t('providers.isEnabled')}</th>
-              <th className="px-4 py-3 text-left">{t('providers.actions')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading ? (
-              <tr><td colSpan={5} className="px-4 py-8 text-center">{t('common.loading')}</td></tr>
-            ) : providers.length === 0 ? (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-500">No providers</td></tr>
-            ) : (
-              providers.map(provider => (
-                <tr key={provider.id} className="border-t">
-                  <td className="px-4 py-3 font-medium">{provider.name}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{provider.baseUrl}</td>
-                  <td className="px-4 py-3">
-                    {provider.isDefault && (
-                      <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-sm">Default</span>
+      <Card>
+        {isLoading ? (
+          <LoadingState />
+        ) : providers.length === 0 ? (
+          <EmptyState
+            icon={Bot}
+            title="还没有供应商"
+            description="添加一个 OpenAI 兼容的 API 端点开始使用"
+            action={
+              <Button onClick={openCreate}>
+                <Plus className="w-4 h-4 mr-1.5" />
+                添加第一个供应商
+              </Button>
+            }
+          />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('providers.name')}</TableHead>
+                <TableHead>{t('providers.baseUrl')}</TableHead>
+                <TableHead>状态</TableHead>
+                <TableHead className="text-right">{t('providers.actions')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {providers.map(provider => (
+                <TableRow key={provider.id}>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-slate-900">{provider.name}</span>
+                      {provider.isDefault && (
+                        <Badge variant="default" className="gap-1">
+                          <Star className="w-3 h-3 fill-current" />
+                          默认
+                        </Badge>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell className="font-mono text-xs text-slate-500">
+                    {provider.baseUrl}
+                  </TableCell>
+                  <TableCell>
+                    {provider.isEnabled ? (
+                      <Badge variant="success">已启用</Badge>
+                    ) : (
+                      <Badge variant="secondary">已禁用</Badge>
                     )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`px-2 py-1 rounded text-sm ${provider.isEnabled ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-600'}`}>
-                      {provider.isEnabled ? 'Enabled' : 'Disabled'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 space-x-2">
-                    {!provider.isDefault && (
-                      <button
-                        onClick={() => handleSetDefault(provider.id)}
-                        className="text-green-600 hover:underline"
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      {!provider.isDefault && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleSetDefault(provider.id)}
+                          title="设为默认"
+                        >
+                          <Check className="w-4 h-4" />
+                        </Button>
+                      )}
+                      <Button variant="ghost" size="sm" onClick={() => openEdit(provider)}>
+                        <Edit className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDelete(provider.id, provider.name)}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
                       >
-                        {t('providers.setDefault')}
-                      </button>
-                    )}
-                    <button
-                      onClick={() => openEditModal(provider)}
-                      className="text-blue-600 hover:underline"
-                    >
-                      {t('providers.edit')}
-                    </button>
-                    <button
-                      onClick={() => handleDelete(provider.id)}
-                      className="text-red-600 hover:underline"
-                    >
-                      {t('providers.delete')}
-                    </button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </Card>
 
       {/* Modal */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-lg w-[500px]">
-            <h2 className="text-lg font-bold mb-4">
-              {editingProvider ? t('providers.edit') : t('providers.add')}
-            </h2>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">{t('providers.name')}</label>
+      <Dialog open={showModal} onOpenChange={open => !open && setShowModal(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {editingProvider ? '编辑供应商' : '添加供应商'}
+            </DialogTitle>
+            <DialogDescription>
+              填写 OpenAI 兼容 API 的连接信息
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="pname">名称</Label>
+              <Input
+                id="pname"
+                value={form.name}
+                onChange={e => setForm({ ...form, name: e.target.value })}
+                placeholder="例如：OpenAI / DeepSeek"
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="purl">Base URL</Label>
+              <Input
+                id="purl"
+                value={form.baseUrl}
+                onChange={e => setForm({ ...form, baseUrl: e.target.value })}
+                placeholder="https://api.openai.com/v1"
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="pkey">API Key</Label>
+              <Input
+                id="pkey"
+                value={form.apiKey}
+                onChange={e => setForm({ ...form, apiKey: e.target.value })}
+                placeholder={editingProvider ? '留空保留原值' : 'sk-...'}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="pmodels">模型列表 (JSON)</Label>
+              <Textarea
+                id="pmodels"
+                value={form.models}
+                onChange={e => setForm({ ...form, models: e.target.value })}
+                rows={4}
+                className="font-mono text-xs"
+                placeholder='[{"id":"gpt-4o","tier":"paid"}]'
+              />
+            </div>
+            <div className="flex gap-6 pt-1">
+              <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
                 <input
-                  type="text"
-                  value={form.name}
-                  onChange={e => setForm({ ...form, name: e.target.value })}
-                  className="w-full px-3 py-2 border rounded"
-                  required
+                  type="checkbox"
+                  checked={form.isDefault}
+                  onChange={e => setForm({ ...form, isDefault: e.target.checked })}
+                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                 />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">{t('providers.baseUrl')}</label>
+                设为默认
+              </label>
+              <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
                 <input
-                  type="url"
-                  value={form.baseUrl}
-                  onChange={e => setForm({ ...form, baseUrl: e.target.value })}
-                  className="w-full px-3 py-2 border rounded"
-                  required
+                  type="checkbox"
+                  checked={form.isEnabled}
+                  onChange={e => setForm({ ...form, isEnabled: e.target.checked })}
+                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                 />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">{t('providers.apiKey')}</label>
-                <input
-                  type="text"
-                  value={form.apiKey}
-                  onChange={e => setForm({ ...form, apiKey: e.target.value })}
-                  className="w-full px-3 py-2 border rounded"
-                  placeholder="Leave empty to keep existing"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">{t('providers.models')}</label>
-                <textarea
-                  value={form.models}
-                  onChange={e => setForm({ ...form, models: e.target.value })}
-                  className="w-full px-3 py-2 border rounded"
-                  rows={3}
-                  placeholder='[{"id":"gpt-4o","tier":"paid"}]'
-                />
-              </div>
-              <div className="flex gap-4">
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={form.isDefault}
-                    onChange={e => setForm({ ...form, isDefault: e.target.checked })}
-                  />
-                  {t('providers.isDefault')}
-                </label>
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={form.isEnabled}
-                    onChange={e => setForm({ ...form, isEnabled: e.target.checked })}
-                  />
-                  {t('providers.isEnabled')}
-                </label>
-              </div>
-              <div className="flex gap-2 pt-4">
-                <button type="submit" className="flex-1 py-2 bg-blue-600 text-white rounded">
-                  {t('common.save')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowModal(false)
-                    setEditingProvider(null)
-                  }}
-                  className="flex-1 py-2 bg-gray-200 rounded"
-                >
-                  {t('common.cancel')}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+                启用
+              </label>
+            </div>
+          </form>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowModal(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button onClick={handleSubmit}>{t('common.save')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

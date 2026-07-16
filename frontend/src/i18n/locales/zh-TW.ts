@@ -43,8 +43,22 @@ const zhTW: Translation = {
     free: '免費',
     paid: '付費',
     login: '登入',
+    register: '註冊',
     logout: '登出',
     aiInterpret: 'AI 解讀',
+  },
+  auth: {
+    email: '信箱',
+    password: '密碼',
+    displayName: '暱稱',
+    login: '登入',
+    register: '註冊',
+    noAccount: '還沒有帳號？',
+    hasAccount: '已有帳號？',
+    notLoggedIn: '請先登入',
+  },
+  account: {
+    title: '個人中心',
   },
   home: {
     heroTitle: '探索你的命運',

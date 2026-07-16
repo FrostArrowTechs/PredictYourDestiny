@@ -1,6 +1,15 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Save, Settings as SettingsIcon, Check } from 'lucide-react'
 import { useAuth } from '../App'
+import { PageHeader, LoadingState } from '../components/PageHeader'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/Card'
+import { Button } from '../components/ui/Button'
+import { Input } from '../components/ui/Input'
+import { Textarea } from '../components/ui/Textarea'
+import { Label } from '../components/ui/Label'
+import { Select } from '../components/ui/Select'
+import { cn } from '../lib/utils'
 
 interface Setting {
   key: string
@@ -16,35 +25,50 @@ export default function SettingsPage() {
   const { token } = useAuth()
   const [settings, setSettings] = useState<Setting[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [saving, setSaving] = useState<string | null>(null)
+  const [savedKey, setSavedKey] = useState<string | null>(null)
+  const [savingKey, setSavingKey] = useState<string | null>(null)
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
 
   useEffect(() => {
     loadSettings()
   }, [token])
 
-  const loadSettings = () => {
+  const loadSettings = async () => {
     setIsLoading(true)
-    fetch('/api/settings', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(res => res.json())
-      .then(data => {
-        setSettings(data.settings || [])
+    try {
+      const res = await fetch('/api/settings', {
+        headers: { Authorization: `Bearer ${token}` },
       })
-      .finally(() => setIsLoading(false))
+      const data = await res.json()
+      setSettings(data.settings || [])
+      const drafts: Record<string, string> = {}
+      data.settings?.forEach((s: Setting) => { drafts[s.key] = s.value })
+      setDrafts(drafts)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
-  const handleSave = async (key: string, value: string) => {
-    setSaving(key)
-    await fetch('/api/settings', {
-      method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ settings: [{ key, value }] }),
-    })
-    setSaving(null)
+  const handleSave = async (key: string) => {
+    setSavingKey(key)
+    try {
+      await fetch('/api/settings', {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ settings: [{ key, value: drafts[key] }] }),
+      })
+      setSavedKey(key)
+      setTimeout(() => setSavedKey(null), 2000)
+    } finally {
+      setSavingKey(null)
+    }
+  }
+
+  const updateDraft = (key: string, value: string) => {
+    setDrafts({ ...drafts, [key]: value })
   }
 
   const grouped = settings.reduce((acc, s) => {
@@ -54,73 +78,121 @@ export default function SettingsPage() {
     return acc
   }, {} as Record<string, Setting[]>)
 
+  const groupLabels: Record<string, string> = {
+    ai: 'AI 网关',
+    feature: '功能设置',
+    general: '通用设置',
+  }
+
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">{t('settings.title')}</h1>
+      <PageHeader
+        title={t('settings.title')}
+        description="修改后立即生效，无需重启服务"
+      />
 
       {isLoading ? (
-        <div className="text-center py-8">{t('common.loading')}</div>
+        <LoadingState />
+      ) : Object.keys(grouped).length === 0 ? (
+        <Card>
+          <div className="p-12 text-center">
+            <SettingsIcon className="w-8 h-8 text-slate-300 mx-auto mb-3" />
+            <p className="text-sm text-slate-500">暂无设置项</p>
+          </div>
+        </Card>
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-4">
           {Object.entries(grouped).map(([group, items]) => (
-            <div key={group} className="bg-white rounded-lg shadow p-6">
-              <h2 className="text-lg font-semibold mb-4 capitalize">{group}</h2>
-              <div className="space-y-4">
-                {items.map(setting => (
-                  <div key={setting.key}>
-                    <label className="block text-sm font-medium mb-1">
-                      {setting.label}
-                    </label>
-                    {setting.hint && (
-                      <p className="text-xs text-gray-500 mb-1">{setting.hint}</p>
-                    )}
-                    <div className="flex gap-2">
+            <Card key={group}>
+              <CardHeader>
+                <CardTitle className="text-base">
+                  {groupLabels[group] || group}
+                </CardTitle>
+                <CardDescription>
+                  {group === 'ai' && '配置 AI 服务的连接信息和模型选择'}
+                  {group === 'feature' && '调整平台功能开关与限额'}
+                  {group === 'general' && '站点基本信息'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                {items.map(setting => {
+                  const isSaved = savedKey === setting.key
+                  return (
+                    <div key={setting.key} className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor={setting.key}>
+                          {setting.label}
+                        </Label>
+                        <Button
+                          size="sm"
+                          variant={isSaved ? 'outline' : 'default'}
+                          onClick={() => handleSave(setting.key)}
+                          disabled={savingKey === setting.key}
+                          className={cn(isSaved && 'text-green-600 border-green-300')}
+                        >
+                          {isSaved ? (
+                            <>
+                              <Check className="w-3.5 h-3.5 mr-1" />
+                              已保存
+                            </>
+                          ) : savingKey === setting.key ? (
+                            '保存中...'
+                          ) : (
+                            <>
+                              <Save className="w-3.5 h-3.5 mr-1" />
+                              保存
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                      {setting.hint && (
+                        <p className="text-xs text-slate-500">{setting.hint}</p>
+                      )}
                       {setting.kind === 'password' ? (
-                        <input
-                          type="password"
-                          defaultValue={setting.value}
-                          className="flex-1 px-3 py-2 border rounded"
+                        <Input
                           id={setting.key}
+                          type="password"
+                          value={drafts[setting.key] || ''}
+                          onChange={e => updateDraft(setting.key, e.target.value)}
+                          placeholder="••••••••"
                         />
                       ) : setting.kind === 'bool' ? (
-                        <select
-                          defaultValue={setting.value}
-                          className="flex-1 px-3 py-2 border rounded"
+                        <Select
                           id={setting.key}
+                          value={drafts[setting.key] || ''}
+                          onChange={e => updateDraft(setting.key, e.target.value)}
                         >
-                          <option value="true">Enabled</option>
-                          <option value="false">Disabled</option>
-                        </select>
+                          <option value="true">启用</option>
+                          <option value="false">禁用</option>
+                        </Select>
                       ) : setting.kind === 'json' ? (
-                        <textarea
-                          defaultValue={setting.value}
-                          className="flex-1 px-3 py-2 border rounded"
-                          rows={3}
+                        <Textarea
                           id={setting.key}
+                          value={drafts[setting.key] || ''}
+                          onChange={e => updateDraft(setting.key, e.target.value)}
+                          rows={4}
+                          className="font-mono text-xs"
+                        />
+                      ) : setting.kind === 'number' ? (
+                        <Input
+                          id={setting.key}
+                          type="number"
+                          value={drafts[setting.key] || ''}
+                          onChange={e => updateDraft(setting.key, e.target.value)}
                         />
                       ) : (
-                        <input
-                          type={setting.kind === 'number' ? 'number' : 'text'}
-                          defaultValue={setting.value}
-                          className="flex-1 px-3 py-2 border rounded"
+                        <Input
                           id={setting.key}
+                          type="text"
+                          value={drafts[setting.key] || ''}
+                          onChange={e => updateDraft(setting.key, e.target.value)}
                         />
                       )}
-                      <button
-                        onClick={() => {
-                          const el = document.getElementById(setting.key) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
-                          handleSave(setting.key, el.value)
-                        }}
-                        disabled={saving === setting.key}
-                        className="px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50"
-                      >
-                        {saving === setting.key ? t('common.loading') : t('settings.save')}
-                      </button>
                     </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+                  )
+                })}
+              </CardContent>
+            </Card>
           ))}
         </div>
       )}

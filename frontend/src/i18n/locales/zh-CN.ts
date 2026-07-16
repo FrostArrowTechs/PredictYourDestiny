@@ -47,8 +47,22 @@ const zhCN = {
     free: '免费',
     paid: '付费',
     login: '登录',
+    register: '注册',
     logout: '退出',
     aiInterpret: 'AI 解读',
+  },
+  auth: {
+    email: '邮箱',
+    password: '密码',
+    displayName: '昵称',
+    login: '登录',
+    register: '注册',
+    noAccount: '还没有账户？',
+    hasAccount: '已有账户？',
+    notLoggedIn: '请先登录',
+  },
+  account: {
+    title: '个人中心',
   },
   home: {
     heroTitle: '探索你的命运',

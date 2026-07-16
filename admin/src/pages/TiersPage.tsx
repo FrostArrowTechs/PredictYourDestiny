@@ -1,6 +1,29 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Plus, Layers, Edit, Trash2, Infinity as InfinityIcon } from 'lucide-react'
 import { useAuth } from '../App'
+import { PageHeader, EmptyState, LoadingState } from '../components/PageHeader'
+import { Card } from '../components/ui/Card'
+import { Button } from '../components/ui/Button'
+import { Input } from '../components/ui/Input'
+import { Label } from '../components/ui/Label'
+import { Badge } from '../components/ui/Badge'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../components/ui/Table'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/Dialog'
 
 interface Tier {
   id: number
@@ -23,42 +46,37 @@ export default function TiersPage() {
     code: '',
     name: '',
     dailyQuota: 5,
-    features: '',
-    priceMonth: 0,
+    priceYuan: 0,
   })
 
   useEffect(() => {
     loadTiers()
   }, [token])
 
-  const loadTiers = () => {
+  const loadTiers = async () => {
     setIsLoading(true)
-    fetch('/api/admin/tiers', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(res => res.json())
-      .then(data => {
-        setTiers(data.tiers || [])
+    try {
+      const res = await fetch('/api/admin/tiers', {
+        headers: { Authorization: `Bearer ${token}` },
       })
-      .finally(() => setIsLoading(false))
+      const data = await res.json()
+      setTiers(data.tiers || [])
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const url = editingTier
-      ? `/api/admin/tiers/${editingTier.id}`
-      : '/api/admin/tiers'
+    const url = editingTier ? `/api/admin/tiers/${editingTier.id}` : '/api/admin/tiers'
     const method = editingTier ? 'PUT' : 'POST'
 
     const body: Record<string, unknown> = {
       name: form.name,
       dailyQuota: form.dailyQuota,
-      features: form.features,
-      priceMonth: form.priceMonth,
+      priceMonth: Math.round(form.priceYuan * 100),
     }
-    if (!editingTier) {
-      body.code = form.code
-    }
+    if (!editingTier) body.code = form.code
 
     await fetch(url, {
       method,
@@ -71,12 +89,16 @@ export default function TiersPage() {
 
     setShowModal(false)
     setEditingTier(null)
-    setForm({ code: '', name: '', dailyQuota: 5, features: '', priceMonth: 0 })
+    setForm({ code: '', name: '', dailyQuota: 5, priceYuan: 0 })
     loadTiers()
   }
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('Are you sure?')) return
+  const handleDelete = async (id: number, code: string) => {
+    if (code === 'free') {
+      alert('免费层级不可删除')
+      return
+    }
+    if (!confirm(`确定要删除层级 "${code}" 吗？`)) return
     const res = await fetch(`/api/admin/tiers/${id}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${token}` },
@@ -85,159 +107,171 @@ export default function TiersPage() {
       loadTiers()
     } else {
       const data = await res.json()
-      alert(data.error || 'Failed to delete')
+      alert(data.error || '删除失败')
     }
   }
 
-  const openEditModal = (tier: Tier) => {
+  const openCreate = () => {
+    setEditingTier(null)
+    setForm({ code: '', name: '', dailyQuota: 5, priceYuan: 0 })
+    setShowModal(true)
+  }
+
+  const openEdit = (tier: Tier) => {
     setEditingTier(tier)
     setForm({
       code: tier.code,
       name: tier.name,
       dailyQuota: tier.dailyQuota,
-      features: tier.features,
-      priceMonth: tier.priceMonth,
+      priceYuan: tier.priceMonth / 100,
     })
     setShowModal(true)
   }
 
-  const formatPrice = (cents: number) => {
-    return (cents / 100).toFixed(2)
-  }
-
   return (
     <div>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">{t('tiers.title')}</h1>
-        <button
-          onClick={() => setShowModal(true)}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg"
-        >
-          {t('tiers.add')}
-        </button>
-      </div>
+      <PageHeader
+        title={t('tiers.title')}
+        description="管理会员层级、每日配额与定价"
+        actions={
+          <Button onClick={openCreate}>
+            <Plus className="w-4 h-4 mr-1.5" />
+            {t('tiers.add')}
+          </Button>
+        }
+      />
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-4 py-3 text-left">{t('tiers.code')}</th>
-              <th className="px-4 py-3 text-left">{t('tiers.name')}</th>
-              <th className="px-4 py-3 text-left">{t('tiers.dailyQuota')}</th>
-              <th className="px-4 py-3 text-left">{t('tiers.priceMonth')}</th>
-              <th className="px-4 py-3 text-left">{t('tiers.actions')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading ? (
-              <tr><td colSpan={5} className="px-4 py-8 text-center">{t('common.loading')}</td></tr>
-            ) : tiers.length === 0 ? (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-500">No tiers</td></tr>
-            ) : (
-              tiers.map(tier => (
-                <tr key={tier.id} className="border-t">
-                  <td className="px-4 py-3">
-                    <code className="bg-gray-100 px-2 py-1 rounded text-sm">{tier.code}</code>
-                  </td>
-                  <td className="px-4 py-3 font-medium">{tier.name}</td>
-                  <td className="px-4 py-3">
-                    {tier.dailyQuota === -1 ? t('tiers.unlimited') : tier.dailyQuota}
-                  </td>
-                  <td className="px-4 py-3">
-                    {tier.priceMonth > 0 ? `¥${formatPrice(tier.priceMonth)}` : 'Free'}
-                  </td>
-                  <td className="px-4 py-3 space-x-2">
-                    <button
-                      onClick={() => openEditModal(tier)}
-                      className="text-blue-600 hover:underline"
-                    >
-                      {t('tiers.edit')}
-                    </button>
-                    {tier.code !== 'free' && (
-                      <button
-                        onClick={() => handleDelete(tier.id)}
-                        className="text-red-600 hover:underline"
-                      >
-                        {t('tiers.delete')}
-                      </button>
+      <Card>
+        {isLoading ? (
+          <LoadingState />
+        ) : tiers.length === 0 ? (
+          <EmptyState icon={Layers} title="还没有层级" description="添加第一个会员层级" />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('tiers.code')}</TableHead>
+                <TableHead>{t('tiers.name')}</TableHead>
+                <TableHead>{t('tiers.dailyQuota')}</TableHead>
+                <TableHead>{t('tiers.priceMonth')}</TableHead>
+                <TableHead className="text-right">{t('tiers.actions')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {tiers.map(tier => (
+                <TableRow key={tier.id}>
+                  <TableCell>
+                    <code className="px-2 py-0.5 rounded bg-slate-100 text-xs text-slate-700 font-mono">
+                      {tier.code}
+                    </code>
+                  </TableCell>
+                  <TableCell className="font-medium text-slate-900">{tier.name}</TableCell>
+                  <TableCell>
+                    {tier.dailyQuota === -1 ? (
+                      <Badge variant="success" className="gap-1">
+                        <InfinityIcon className="w-3 h-3" />
+                        无限
+                      </Badge>
+                    ) : (
+                      <span className="text-slate-700">{tier.dailyQuota} 次/日</span>
                     )}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+                  </TableCell>
+                  <TableCell>
+                    {tier.priceMonth > 0 ? (
+                      <span className="text-slate-900 font-medium">
+                        ¥{(tier.priceMonth / 100).toFixed(2)}
+                      </span>
+                    ) : (
+                      <Badge variant="secondary">免费</Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => openEdit(tier)}>
+                        <Edit className="w-4 h-4" />
+                      </Button>
+                      {tier.code !== 'free' && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDelete(tier.id, tier.code)}
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </Card>
 
-      {/* Modal */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-lg w-[400px]">
-            <h2 className="text-lg font-bold mb-4">
-              {editingTier ? t('tiers.edit') : t('tiers.add')}
-            </h2>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {!editingTier && (
-                <div>
-                  <label className="block text-sm font-medium mb-1">{t('tiers.code')}</label>
-                  <input
-                    type="text"
-                    value={form.code}
-                    onChange={e => setForm({ ...form, code: e.target.value })}
-                    className="w-full px-3 py-2 border rounded"
-                    required
-                  />
-                </div>
-              )}
-              <div>
-                <label className="block text-sm font-medium mb-1">{t('tiers.name')}</label>
-                <input
-                  type="text"
-                  value={form.name}
-                  onChange={e => setForm({ ...form, name: e.target.value })}
-                  className="w-full px-3 py-2 border rounded"
+      <Dialog open={showModal} onOpenChange={open => !open && setShowModal(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingTier ? '编辑层级' : '添加层级'}</DialogTitle>
+            <DialogDescription>
+              {editingTier ? `修改 ${editingTier.code} 层级配置` : '创建一个新的会员层级'}
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {!editingTier && (
+              <div className="space-y-1.5">
+                <Label htmlFor="tcode">代码</Label>
+                <Input
+                  id="tcode"
+                  value={form.code}
+                  onChange={e => setForm({ ...form, code: e.target.value })}
+                  placeholder="free / basic / premium"
                   required
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">{t('tiers.dailyQuota')}</label>
-                <input
-                  type="number"
-                  value={form.dailyQuota}
-                  onChange={e => setForm({ ...form, dailyQuota: parseInt(e.target.value) || -1 })}
-                  className="w-full px-3 py-2 border rounded"
-                />
-                <p className="text-xs text-gray-500 mt-1">Use -1 for unlimited</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">{t('tiers.priceMonth')} (元)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={form.priceMonth / 100}
-                  onChange={e => setForm({ ...form, priceMonth: Math.round(parseFloat(e.target.value) * 100) || 0 })}
-                  className="w-full px-3 py-2 border rounded"
-                />
-              </div>
-              <div className="flex gap-2 pt-4">
-                <button type="submit" className="flex-1 py-2 bg-blue-600 text-white rounded">
-                  {t('common.save')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowModal(false)
-                    setEditingTier(null)
-                  }}
-                  className="flex-1 py-2 bg-gray-200 rounded"
-                >
-                  {t('common.cancel')}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+            )}
+            <div className="space-y-1.5">
+              <Label htmlFor="tname">名称</Label>
+              <Input
+                id="tname"
+                value={form.name}
+                onChange={e => setForm({ ...form, name: e.target.value })}
+                placeholder="免费用户 / 基础会员"
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="tquota">每日配额</Label>
+              <Input
+                id="tquota"
+                type="number"
+                value={form.dailyQuota}
+                onChange={e => setForm({ ...form, dailyQuota: parseInt(e.target.value) || -1 })}
+                placeholder="5"
+              />
+              <p className="text-xs text-slate-500">填 -1 表示无限制</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="tprice">月费 (元)</Label>
+              <Input
+                id="tprice"
+                type="number"
+                step="0.01"
+                value={form.priceYuan}
+                onChange={e => setForm({ ...form, priceYuan: parseFloat(e.target.value) || 0 })}
+                placeholder="0.00"
+              />
+              <p className="text-xs text-slate-500">填 0 表示免费</p>
+            </div>
+          </form>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowModal(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button onClick={handleSubmit}>{t('common.save')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

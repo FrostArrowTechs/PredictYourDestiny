@@ -21,59 +21,65 @@ export default function RegisterPage() {
       await register(email, password, displayName || undefined)
       navigate('/')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Registration failed')
+      setError(err instanceof Error ? err.message : '注册失败')
     } finally {
       setIsLoading(false)
     }
   }
 
   return (
-    <div className="min-h-[60vh] flex items-center justify-center py-12">
-      <div className="w-full max-w-md bg-white dark:bg-slate-800 rounded-lg shadow-lg p-8">
-        <h1 className="text-2xl font-bold text-center mb-6">{t('auth.register')}</h1>
+    <div className="min-h-[60vh] flex items-center justify-center py-12 px-4">
+      <div className="w-full max-w-md rounded-lg border border-border bg-surface shadow-lg p-8">
+        <h1 className="text-2xl font-bold text-center text-fg mb-6">{t('auth.register')}</h1>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1">{t('auth.email')}</label>
+            <label className="block text-sm font-medium text-fg mb-1">
+              {t('auth.email')}
+            </label>
             <input
               type="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg dark:bg-slate-700 dark:border-slate-600"
+              className="w-full px-3 py-2 rounded-md border border-border bg-bg text-fg outline-none focus:border-primary"
               required
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">{t('auth.password')}</label>
+            <label className="block text-sm font-medium text-fg mb-1">
+              {t('auth.password')}
+            </label>
             <input
               type="password"
               value={password}
               onChange={e => setPassword(e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg dark:bg-slate-700 dark:border-slate-600"
+              className="w-full px-3 py-2 rounded-md border border-border bg-bg text-fg outline-none focus:border-primary"
               required
               minLength={6}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">{t('auth.displayName')}</label>
+            <label className="block text-sm font-medium text-fg mb-1">
+              {t('auth.displayName')}
+            </label>
             <input
               type="text"
               value={displayName}
               onChange={e => setDisplayName(e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg dark:bg-slate-700 dark:border-slate-600"
+              className="w-full px-3 py-2 rounded-md border border-border bg-bg text-fg outline-none focus:border-primary"
             />
           </div>
-          {error && <div className="text-red-500 text-sm">{error}</div>}
+          {error && <div className="text-red-400 text-sm">{error}</div>}
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            className="w-full py-2 rounded-md bg-primary text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
           >
             {isLoading ? t('common.loading') : t('auth.register')}
           </button>
         </form>
         <p className="mt-4 text-center text-sm text-muted">
           {t('auth.hasAccount')}{' '}
-          <Link to="/login" className="text-blue-600 hover:underline">
+          <Link to="/login" className="text-primary hover:underline">
             {t('auth.login')}
           </Link>
         </p>

@@ -138,7 +138,7 @@ export default function AstrologyPage() {
         <button
           onClick={handleCompute}
           disabled={computing}
-          className="mt-4 rounded-md bg-primary px-6 py-2 text-white hover:bg-primary/90 disabled:opacity-50"
+          className="mt-4 rounded-md bg-primary px-6 py-2 text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
           {computing ? t('astrology.form.computing') : t('astrology.form.submit')}
         </button>
@@ -246,7 +246,7 @@ export default function AstrologyPage() {
                 <button
                   onClick={handleInterpret}
                   disabled={!chart}
-                  className="rounded-md bg-primary px-4 py-2 text-sm text-white hover:bg-primary/90 disabled:opacity-50"
+                  className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                 >
                   {t('astrology.interpret.button')}
                 </button>
