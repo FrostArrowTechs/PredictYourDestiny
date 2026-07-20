@@ -10,6 +10,7 @@ package server
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -49,12 +50,21 @@ func New(deps Deps) *gin.Engine {
 		AllowCredentials: false, // must be false when AllowAllOrigins is true
 	}))
 
+	// Basic abuse protection. Authentication endpoints are keyed by IP;
+	// authenticated AI endpoints are keyed by user ID so changing IP cannot
+	// multiply a user's allowance. Quotas remain the billing authority.
+	authLimiter := newFixedWindowLimiter(10, time.Minute)
+	aiLimiter := newFixedWindowLimiter(30, time.Minute)
+	authRateLimit := authLimiter.middleware(clientIPKey("auth"))
+	aiRateLimit := aiLimiter.middleware(userOrIPKey("ai"))
+
 	// --- handlers ---
 	health := &handler.HealthHandler{DB: deps.DB}
 	settings := &handler.SettingHandler{Settings: deps.Settings}
 	authH := &handler.AuthHandler{DB: deps.DB}
 	record := &handler.RecordHandler{DB: deps.DB}
 	quota := &handler.QuotaHandler{DB: deps.DB}
+	entitlements := &handler.EntitlementHandler{DB: deps.DB, Gateway: deps.Gateway}
 	adminUser := &handler.AdminUserHandler{DB: deps.DB}
 	adminProvider := &handler.AdminProviderHandler{DB: deps.DB}
 	adminTier := &handler.AdminTierHandler{DB: deps.DB}
@@ -79,8 +89,8 @@ func New(deps Deps) *gin.Engine {
 		api.GET("/ready", health.Ready)
 
 		// Auth endpoints (public)
-		api.POST("/auth/register", authH.Register)
-		api.POST("/auth/login", authH.Login)
+		api.POST("/auth/register", authRateLimit, authH.Register)
+		api.POST("/auth/login", authRateLimit, authH.Login)
 		api.GET("/auth/me", auth.AuthRequired(), authH.Me)
 
 		// User data endpoints (require auth)
@@ -89,6 +99,7 @@ func New(deps Deps) *gin.Engine {
 		api.GET("/records/:id", auth.AuthRequired(), record.Get)
 		api.DELETE("/records/:id", auth.AuthRequired(), record.Delete)
 		api.GET("/quota", auth.AuthRequired(), quota.Get)
+		api.GET("/entitlements", auth.AuthRequired(), entitlements.Get)
 
 		// Dynamic config (admin-only).
 		api.GET("/settings", auth.AdminRequired(), settings.List)
@@ -121,56 +132,56 @@ func New(deps Deps) *gin.Engine {
 		// Bazi (stage 1): chart compute is anonymous/free; AI
 		// interpret hits the gateway. Auth + quota gating in stage 4.
 		api.POST("/bazi/compute", bazi.Compute)
-		api.POST("/bazi/interpret", auth.AuthRequired(), bazi.Interpret)
+		api.POST("/bazi/interpret", auth.AuthRequired(), aiRateLimit, bazi.Interpret)
 
 		// Dream (stage 2): keyword search + AI interpretation.
 		api.POST("/dream/compute", dream.Compute)
-		api.POST("/dream/interpret", auth.AuthRequired(), dream.Interpret)
+		api.POST("/dream/interpret", auth.AuthRequired(), aiRateLimit, dream.Interpret)
 
 		// Huangli (stage 2): calendar data + AI advice.
 		api.POST("/huangli/compute", huangli.Compute)
-		api.POST("/huangli/interpret", auth.AuthRequired(), huangli.Interpret)
+		api.POST("/huangli/interpret", auth.AuthRequired(), aiRateLimit, huangli.Interpret)
 
 		// Zodiac (stage 2): fortune calculation + AI interpretation.
 		api.POST("/zodiac/compute", zodiac.Compute)
-		api.POST("/zodiac/interpret", auth.AuthRequired(), zodiac.Interpret)
+		api.POST("/zodiac/interpret", auth.AuthRequired(), aiRateLimit, zodiac.Interpret)
 
 		// Compatibility (stage 2): match analysis + AI interpretation.
 		api.POST("/compatibility/compute", compatibility.Compute)
-		api.POST("/compatibility/interpret", auth.AuthRequired(), compatibility.Interpret)
+		api.POST("/compatibility/interpret", auth.AuthRequired(), aiRateLimit, compatibility.Interpret)
 
 		// Weighbone (stage 3 batch 1): bone weight fortune.
 		api.POST("/weighbone/compute", weighbone.Compute)
-		api.POST("/weighbone/interpret", auth.AuthRequired(), weighbone.Interpret)
+		api.POST("/weighbone/interpret", auth.AuthRequired(), aiRateLimit, weighbone.Interpret)
 
 		// Divination (stage 3 batch 1): draw divination stick + interpret.
 		api.POST("/divination/compute", divination.Compute)
-		api.POST("/divination/interpret", auth.AuthRequired(), divination.Interpret)
+		api.POST("/divination/interpret", auth.AuthRequired(), aiRateLimit, divination.Interpret)
 
 		// Plum flower (stage 3 batch 1): hexagram divination.
 		api.POST("/plumflower/compute", plumflower.Compute)
-		api.POST("/plumflower/interpret", auth.AuthRequired(), plumflower.Interpret)
+		api.POST("/plumflower/interpret", auth.AuthRequired(), aiRateLimit, plumflower.Interpret)
 
 		// Name (stage 3 batch 2): Five格 name analysis.
 		api.POST("/name/compute", name.Compute)
-		api.POST("/name/interpret", auth.AuthRequired(), name.Interpret)
+		api.POST("/name/interpret", auth.AuthRequired(), aiRateLimit, name.Interpret)
 
 		// Astrology (stage 3 batch 2): Western natal chart.
 		api.POST("/astrology/compute", astrology.Compute)
-		api.POST("/astrology/interpret", auth.AuthRequired(), astrology.Interpret)
+		api.POST("/astrology/interpret", auth.AuthRequired(), aiRateLimit, astrology.Interpret)
 
 		// Constellation (stage 3 batch 3): sun-sign daily fortune.
 		api.POST("/constellation/compute", constellation.Compute)
-		api.POST("/constellation/interpret", auth.AuthRequired(), constellation.Interpret)
+		api.POST("/constellation/interpret", auth.AuthRequired(), aiRateLimit, constellation.Interpret)
 
 		// Tarot (stage 3 batch 3): card draw + spread interpretation.
 		api.POST("/tarot/draw", tarot.Draw)
 		api.POST("/tarot/compute", tarot.Draw)
-		api.POST("/tarot/interpret", auth.AuthRequired(), tarot.Interpret)
+		api.POST("/tarot/interpret", auth.AuthRequired(), aiRateLimit, tarot.Interpret)
 
 		// Ziwei (stage 3 batch 3): 紫微斗数 natal chart.
 		api.POST("/ziwei/compute", ziwei.Compute)
-		api.POST("/ziwei/interpret", auth.AuthRequired(), ziwei.Interpret)
+		api.POST("/ziwei/interpret", auth.AuthRequired(), aiRateLimit, ziwei.Interpret)
 	}
 
 	// Anything under /api/* that isn't matched returns a JSON 404.

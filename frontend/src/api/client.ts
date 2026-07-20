@@ -91,6 +91,20 @@ export const Health = {
   check: () => api.get<HealthResponse>('/health'),
 }
 
+export interface EntitlementResponse {
+  effectiveTier: string
+  tierName: string
+  expiresAt: string | null
+  dailyQuota: number
+  features: string[]
+  availableModels: ModelEntry[]
+  fellBackToFree: boolean
+}
+
+export const Entitlements = {
+  get: () => api.get<EntitlementResponse>('/entitlements'),
+}
+
 // ── bazi (四柱命理) ──────────────────────────────────────────────
 //
 // These mirror the JSON shapes the Go handler returns verbatim (see
