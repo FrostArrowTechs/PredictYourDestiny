@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"predictdestiny/internal/ai"
 	"predictdestiny/internal/ai/prompt"
@@ -16,6 +17,7 @@ import (
 // CompatibilityHandler exposes the compatibility endpoints.
 type CompatibilityHandler struct {
 	Gateway ai.Gateway
+	DB      *gorm.DB
 }
 
 // subjectReq is one person's birth data.
@@ -107,7 +109,10 @@ func (h *CompatibilityHandler) Interpret(c *gin.Context) {
 		return
 	}
 
-	model := h.resolveModel(req.Model, spec)
+	model, authorized := authorizeAIRequest(c, h.DB, h.Gateway, req.Model, spec.Tier)
+	if !authorized {
+		return
+	}
 	if model == "" {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "no AI model configured"})
 		return

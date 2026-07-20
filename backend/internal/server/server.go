@@ -58,19 +58,19 @@ func New(deps Deps) *gin.Engine {
 	adminUser := &handler.AdminUserHandler{DB: deps.DB}
 	adminProvider := &handler.AdminProviderHandler{DB: deps.DB}
 	adminTier := &handler.AdminTierHandler{DB: deps.DB}
-	bazi := &handler.BaziHandler{Gateway: deps.Gateway}
+	bazi := &handler.BaziHandler{Gateway: deps.Gateway, DB: deps.DB}
 	dream := &handler.DreamHandler{Gateway: deps.Gateway, DB: deps.DB}
-	huangli := &handler.HuangliHandler{Gateway: deps.Gateway}
-	zodiac := &handler.ZodiacHandler{Gateway: deps.Gateway}
-	compatibility := &handler.CompatibilityHandler{Gateway: deps.Gateway}
-	weighbone := &handler.WeighboneHandler{Gateway: deps.Gateway}
+	huangli := &handler.HuangliHandler{Gateway: deps.Gateway, DB: deps.DB}
+	zodiac := &handler.ZodiacHandler{Gateway: deps.Gateway, DB: deps.DB}
+	compatibility := &handler.CompatibilityHandler{Gateway: deps.Gateway, DB: deps.DB}
+	weighbone := &handler.WeighboneHandler{Gateway: deps.Gateway, DB: deps.DB}
 	divination := &handler.DivinationHandler{Gateway: deps.Gateway, DB: deps.DB}
-	plumflower := &handler.PlumFlowerHandler{Gateway: deps.Gateway}
+	plumflower := &handler.PlumFlowerHandler{Gateway: deps.Gateway, DB: deps.DB}
 	name := &handler.NameHandler{Gateway: deps.Gateway, DB: deps.DB}
-	astrology := &handler.AstrologyHandler{Gateway: deps.Gateway}
-	constellation := &handler.ConstellationHandler{Gateway: deps.Gateway}
+	astrology := &handler.AstrologyHandler{Gateway: deps.Gateway, DB: deps.DB}
+	constellation := &handler.ConstellationHandler{Gateway: deps.Gateway, DB: deps.DB}
 	tarot := &handler.TarotHandler{Gateway: deps.Gateway, DB: deps.DB}
-	ziwei := &handler.ZiweiHandler{Gateway: deps.Gateway}
+	ziwei := &handler.ZiweiHandler{Gateway: deps.Gateway, DB: deps.DB}
 
 	// --- API routes ---
 	api := r.Group("/api")
@@ -91,7 +91,7 @@ func New(deps Deps) *gin.Engine {
 		api.GET("/quota", auth.AuthRequired(), quota.Get)
 
 		// Dynamic config (admin-only).
-		api.GET("/settings", settings.List)
+		api.GET("/settings", auth.AdminRequired(), settings.List)
 		api.PUT("/settings", auth.AdminRequired(), settings.Update)
 		api.POST("/settings/reload", auth.AdminRequired(), settings.Reload)
 
@@ -121,57 +121,57 @@ func New(deps Deps) *gin.Engine {
 		// Bazi (stage 1): chart compute is anonymous/free; AI
 		// interpret hits the gateway. Auth + quota gating in stage 4.
 		api.POST("/bazi/compute", bazi.Compute)
-		api.POST("/bazi/interpret", bazi.Interpret)
+		api.POST("/bazi/interpret", auth.AuthRequired(), bazi.Interpret)
 
 		// Dream (stage 2): keyword search + AI interpretation.
 		api.POST("/dream/compute", dream.Compute)
-		api.POST("/dream/interpret", dream.Interpret)
+		api.POST("/dream/interpret", auth.AuthRequired(), dream.Interpret)
 
 		// Huangli (stage 2): calendar data + AI advice.
 		api.POST("/huangli/compute", huangli.Compute)
-		api.POST("/huangli/interpret", huangli.Interpret)
+		api.POST("/huangli/interpret", auth.AuthRequired(), huangli.Interpret)
 
 		// Zodiac (stage 2): fortune calculation + AI interpretation.
 		api.POST("/zodiac/compute", zodiac.Compute)
-		api.POST("/zodiac/interpret", zodiac.Interpret)
+		api.POST("/zodiac/interpret", auth.AuthRequired(), zodiac.Interpret)
 
 		// Compatibility (stage 2): match analysis + AI interpretation.
 		api.POST("/compatibility/compute", compatibility.Compute)
-		api.POST("/compatibility/interpret", compatibility.Interpret)
+		api.POST("/compatibility/interpret", auth.AuthRequired(), compatibility.Interpret)
 
 		// Weighbone (stage 3 batch 1): bone weight fortune.
 		api.POST("/weighbone/compute", weighbone.Compute)
-		api.POST("/weighbone/interpret", weighbone.Interpret)
+		api.POST("/weighbone/interpret", auth.AuthRequired(), weighbone.Interpret)
 
 		// Divination (stage 3 batch 1): draw divination stick + interpret.
 		api.POST("/divination/compute", divination.Compute)
-		api.POST("/divination/interpret", divination.Interpret)
+		api.POST("/divination/interpret", auth.AuthRequired(), divination.Interpret)
 
-			// Plum flower (stage 3 batch 1): hexagram divination.
-			api.POST("/plumflower/compute", plumflower.Compute)
-			api.POST("/plumflower/interpret", plumflower.Interpret)
+		// Plum flower (stage 3 batch 1): hexagram divination.
+		api.POST("/plumflower/compute", plumflower.Compute)
+		api.POST("/plumflower/interpret", auth.AuthRequired(), plumflower.Interpret)
 
-			// Name (stage 3 batch 2): Five格 name analysis.
-			api.POST("/name/compute", name.Compute)
-			api.POST("/name/interpret", name.Interpret)
+		// Name (stage 3 batch 2): Five格 name analysis.
+		api.POST("/name/compute", name.Compute)
+		api.POST("/name/interpret", auth.AuthRequired(), name.Interpret)
 
-			// Astrology (stage 3 batch 2): Western natal chart.
-			api.POST("/astrology/compute", astrology.Compute)
-			api.POST("/astrology/interpret", astrology.Interpret)
+		// Astrology (stage 3 batch 2): Western natal chart.
+		api.POST("/astrology/compute", astrology.Compute)
+		api.POST("/astrology/interpret", auth.AuthRequired(), astrology.Interpret)
 
-			// Constellation (stage 3 batch 3): sun-sign daily fortune.
-			api.POST("/constellation/compute", constellation.Compute)
-			api.POST("/constellation/interpret", constellation.Interpret)
+		// Constellation (stage 3 batch 3): sun-sign daily fortune.
+		api.POST("/constellation/compute", constellation.Compute)
+		api.POST("/constellation/interpret", auth.AuthRequired(), constellation.Interpret)
 
-			// Tarot (stage 3 batch 3): card draw + spread interpretation.
-			api.POST("/tarot/draw", tarot.Draw)
-			api.POST("/tarot/compute", tarot.Draw)
-			api.POST("/tarot/interpret", tarot.Interpret)
+		// Tarot (stage 3 batch 3): card draw + spread interpretation.
+		api.POST("/tarot/draw", tarot.Draw)
+		api.POST("/tarot/compute", tarot.Draw)
+		api.POST("/tarot/interpret", auth.AuthRequired(), tarot.Interpret)
 
-			// Ziwei (stage 3 batch 3): 紫微斗数 natal chart.
-			api.POST("/ziwei/compute", ziwei.Compute)
-			api.POST("/ziwei/interpret", ziwei.Interpret)
-			}
+		// Ziwei (stage 3 batch 3): 紫微斗数 natal chart.
+		api.POST("/ziwei/compute", ziwei.Compute)
+		api.POST("/ziwei/interpret", auth.AuthRequired(), ziwei.Interpret)
+	}
 
 	// Anything under /api/* that isn't matched returns a JSON 404.
 	// Non-/api paths get the same JSON shape — there is no SPA here.

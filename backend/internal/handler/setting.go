@@ -8,6 +8,8 @@ import (
 	"predictdestiny/internal/store"
 )
 
+const maskedSecret = "********"
+
 // SettingHandler exposes the dynamic-config table to the admin panel.
 //
 // For now the routes are not yet admin-gated — that wire-up happens
@@ -24,6 +26,11 @@ func (h *SettingHandler) List(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+	for i := range rows {
+		if rows[i].Kind == "password" && rows[i].Value != "" {
+			rows[i].Value = maskedSecret
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{"items": rows})
 }
@@ -44,6 +51,16 @@ func (h *SettingHandler) Update(c *gin.Context) {
 	}
 	if len(body.Items) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "no items"})
+		return
+	}
+	// The masked value means the admin left an existing secret unchanged.
+	for key, value := range body.Items {
+		if value == maskedSecret {
+			delete(body.Items, key)
+		}
+	}
+	if len(body.Items) == 0 {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 		return
 	}
 	if err := h.Settings.SetMany(body.Items); err != nil {

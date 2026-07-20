@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"predictdestiny/internal/ai"
 	"predictdestiny/internal/ai/prompt"
@@ -18,6 +19,7 @@ import (
 // POST /api/constellation/interpret — AI reading with streaming support
 type ConstellationHandler struct {
 	Gateway ai.Gateway
+	DB      *gorm.DB
 }
 
 // constellationComputeReq is the input for constellation fortune.
@@ -93,7 +95,10 @@ func (h *ConstellationHandler) Interpret(c *gin.Context) {
 		return
 	}
 
-	model := h.resolveModel(req.Model, spec)
+	model, authorized := authorizeAIRequest(c, h.DB, h.Gateway, req.Model, spec.Tier)
+	if !authorized {
+		return
+	}
 	if model == "" {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "no AI model configured"})
 		return

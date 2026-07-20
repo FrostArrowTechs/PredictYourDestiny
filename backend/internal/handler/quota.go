@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -36,7 +38,7 @@ func (h *QuotaHandler) Get(c *gin.Context) {
 
 	today := time.Now().UTC().Format("2006-01-02")
 
-	// Look up today's usage
+	// Look up today's usage and the user's effective membership.
 	var quota model.UsageQuota
 	err := h.DB.Where("user_id = ? AND date = ?", userID, today).First(&quota).Error
 
@@ -45,9 +47,16 @@ func (h *QuotaHandler) Get(c *gin.Context) {
 		used = quota.Count
 	}
 
-	// For now, use a default limit of 5.
-	// TODO: Read from settings or user's membership tier.
-	limit := 5
+	ent, entitlementErr := effectiveEntitlement(h.DB, userID, time.Now())
+	if entitlementErr != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "membership unavailable"})
+		return
+	}
+	limit := ent.Tier.DailyQuota
+	if limit < 0 {
+		c.JSON(http.StatusOK, QuotaResponse{Date: today, Used: used, Remaining: -1, Limit: -1})
+		return
+	}
 	remaining := limit - used
 	if remaining < 0 {
 		remaining = 0
@@ -64,40 +73,34 @@ func (h *QuotaHandler) Get(c *gin.Context) {
 // IncrementUsage increments the usage counter for the authenticated user.
 // Returns error if quota exceeded.
 func IncrementUsage(db *gorm.DB, userID uint, limit int) error {
-	today := time.Now().UTC().Format("2006-01-02")
-
-	// Get or create quota record for today
-	var quota model.UsageQuota
-	err := db.Where("user_id = ? AND date = ?", userID, today).First(&quota).Error
-
-	if err == gorm.ErrRecordNotFound {
-		// Create new quota record
-		quota = model.UsageQuota{
-			UserID: userID,
-			Date:   today,
-			Count:  0,
-		}
-		if err := db.Create(&quota).Error; err != nil {
-			return err
-		}
-	} else if err != nil {
-		return err
+	if limit < 0 { // unlimited
+		return nil
 	}
-
-	// Check limit (unless unlimited)
-	if limit > 0 && quota.Count >= limit {
+	if limit == 0 {
 		return ErrQuotaExceeded
 	}
+	today := time.Now().UTC().Format("2006-01-02")
 
-	// Increment
-	return db.Model(&quota).Update("count", quota.Count+1).Error
+	// One statement performs create/increment and enforces the ceiling. The
+	// unique (user_id,date) index makes concurrent requests serialize here.
+	table := db.NamingStrategy.TableName("UsageQuota")
+	var count int
+	query := fmt.Sprintf(`
+		INSERT INTO %s (user_id, date, count, created_at, updated_at)
+		VALUES (?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT (user_id, date) DO UPDATE
+		SET count = %s.count + 1, updated_at = CURRENT_TIMESTAMP
+		WHERE %s.count < ?
+		RETURNING count`, table, table, table)
+	result := db.Raw(query, userID, today, limit).Scan(&count)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 || count == 0 {
+		return ErrQuotaExceeded
+	}
+	return nil
 }
 
 // ErrQuotaExceeded is returned when the user has used up their daily quota.
-var ErrQuotaExceeded = &QuotaExceededError{}
-
-type QuotaExceededError struct{}
-
-func (e *QuotaExceededError) Error() string {
-	return "daily quota exceeded"
-}
+var ErrQuotaExceeded = errors.New("daily quota exceeded")

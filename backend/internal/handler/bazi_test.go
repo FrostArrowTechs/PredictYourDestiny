@@ -10,18 +10,22 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 
 	"predictdestiny/internal/ai"
+	"predictdestiny/internal/auth"
+	"predictdestiny/internal/model"
 )
 
 // fakeGateway is an ai.Gateway stub for handler tests. It records the
 // args it was called with and replays canned events for streaming.
 type fakeGateway struct {
-	chatResp *ai.Response
-	chatErr  error
+	chatResp     *ai.Response
+	chatErr      error
 	streamEvents []ai.StreamEvent
 	streamErr    error
-	catalog  ai.ModelCatalog
+	catalog      ai.ModelCatalog
 
 	lastModel string
 	lastMsgs  []ai.Message
@@ -50,8 +54,32 @@ func (g *fakeGateway) ListModels() ai.ModelCatalog { return g.catalog }
 // ─── helpers ──────────────────────────────────────────────────────
 
 func newTestRouter(h *BaziHandler) *gin.Engine {
+	if h.DB == nil {
+		db, err := gorm.Open(sqlite.Open("file:bazi_handler_tests?mode=memory&cache=shared"), &gorm.Config{})
+		if err != nil {
+			panic(err)
+		}
+		sqlDB, err := db.DB()
+		if err != nil {
+			panic(err)
+		}
+		sqlDB.SetMaxOpenConns(1)
+		if err := db.AutoMigrate(&model.MembershipTier{}, &model.UserMembership{}, &model.UsageQuota{}); err != nil {
+			panic(err)
+		}
+		if err := db.Where("code = ?", model.TierCodeFree).FirstOrCreate(
+			&model.MembershipTier{Code: model.TierCodeFree, Name: "Free", DailyQuota: 100},
+		).Error; err != nil {
+			panic(err)
+		}
+		h.DB = db
+	}
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set(string(auth.ClaimsKey), &auth.Claims{UserID: 1, Role: "user"})
+		c.Next()
+	})
 	r.POST("/api/bazi/compute", h.Compute)
 	r.POST("/api/bazi/interpret", h.Interpret)
 	return r
@@ -173,8 +201,7 @@ func TestBaziInterpretSync(t *testing.T) {
 }
 
 // TestBaziInterpretModelResolution verifies the handler validates the
-// client's model pick against the catalog and falls back to the
-// tier's first model when unset or unknown.
+// client's model pick against both the catalog and effective membership.
 func TestBaziInterpretModelResolution(t *testing.T) {
 	gw := &fakeGateway{
 		catalog: ai.ModelCatalog{
@@ -196,34 +223,28 @@ func TestBaziInterpretModelResolution(t *testing.T) {
 		t.Errorf("default model = %q, want free-a", gw.lastModel)
 	}
 
-	// explicit valid model → honored
+	// explicit paid model is rejected for a free member
 	w = doJSON(t, r, "/api/bazi/interpret",
 		`{"year":2000,"month":1,"day":1,"hour":12,"gender":1,"lang":"zh-CN","model":"paid-a"}`)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, %s", w.Code, w.Body.String())
-	}
-	if gw.lastModel != "paid-a" {
-		t.Errorf("explicit model = %q, want paid-a", gw.lastModel)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403: %s", w.Code, w.Body.String())
 	}
 
-	// explicit unknown model → falls back to tier default (free)
+	// explicit unknown model is rejected rather than silently substituted
 	w = doJSON(t, r, "/api/bazi/interpret",
 		`{"year":2000,"month":1,"day":1,"hour":12,"gender":1,"lang":"zh-CN","model":"does-not-exist"}`)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, %s", w.Code, w.Body.String())
-	}
-	if gw.lastModel != "free-a" {
-		t.Errorf("unknown model fallback = %q, want free-a", gw.lastModel)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400: %s", w.Code, w.Body.String())
 	}
 
-	// deep depth → paid tier → paid-a
+	// deep prompt request cannot elevate a free user; it uses a free model
 	w = doJSON(t, r, "/api/bazi/interpret",
 		`{"year":2000,"month":1,"day":1,"hour":12,"gender":1,"lang":"zh-CN","interpretDepth":"deep"}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, %s", w.Code, w.Body.String())
 	}
-	if gw.lastModel != "paid-a" {
-		t.Errorf("deep tier model = %q, want paid-a", gw.lastModel)
+	if gw.lastModel != "free-a" {
+		t.Errorf("deep tier model = %q, want free-a", gw.lastModel)
 	}
 }
 

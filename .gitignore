@@ -6,6 +6,10 @@
 
 # ---- Local task tracking (keep out of VCS) ----
 TODO.md
+IMPROVEMENT_PLAN.md
+
+# ---- Disposable project temp directories ----
+tmp/
 
 # ---- Go (backend) ----
 /backend/bin/
@@ -42,3 +46,7 @@ Thumbs.db
 # ---- Logs ----
 *.log
 logs/
+
+# ---- Local audit documents ----
+PredictYourDestiny_问题与待实现清单.docx
+PredictYourDestiny_算法完善与出生时间不确定性改进方案.docx

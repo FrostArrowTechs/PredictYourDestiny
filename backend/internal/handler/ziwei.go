@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"predictdestiny/internal/ai"
 	"predictdestiny/internal/ai/prompt"
@@ -18,6 +19,7 @@ import (
 // POST /api/ziwei/interpret — AI reading with streaming support
 type ZiweiHandler struct {
 	Gateway ai.Gateway
+	DB      *gorm.DB
 }
 
 // ziweiComputeReq is the input for a Ziwei chart.
@@ -98,7 +100,10 @@ func (h *ZiweiHandler) Interpret(c *gin.Context) {
 		return
 	}
 
-	model := h.resolveModel(req.Model, spec)
+	model, authorized := authorizeAIRequest(c, h.DB, h.Gateway, req.Model, spec.Tier)
+	if !authorized {
+		return
+	}
 	if model == "" {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "no AI model configured"})
 		return

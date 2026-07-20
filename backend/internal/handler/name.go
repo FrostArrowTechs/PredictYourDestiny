@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"predictdestiny/internal/ai"
 	"predictdestiny/internal/ai/prompt"
@@ -18,17 +19,17 @@ import (
 // POST /api/name/interpret — AI reading with streaming support
 type NameHandler struct {
 	Gateway ai.Gateway
-	DB      interface{} // *gorm.DB, typed loosely to avoid import
+	DB      *gorm.DB
 }
 
 // nameComputeReq is the input for name analysis.
 type nameComputeReq struct {
-	FullName     string `json:"fullName" binding:"required,min=2"`
-	Gender       int    `json:"gender" binding:"min=0,max=1"`
-	Lang         string `json:"lang"`
+	FullName       string `json:"fullName" binding:"required,min=2"`
+	Gender         int    `json:"gender" binding:"min=0,max=1"`
+	Lang           string `json:"lang"`
 	InterpretDepth string `json:"interpretDepth"`
-	Model        string `json:"model"`
-	Stream       bool   `json:"stream"`
+	Model          string `json:"model"`
+	Stream         bool   `json:"stream"`
 }
 
 // Compute runs the Five格 calculation and returns the structured result.
@@ -99,7 +100,10 @@ func (h *NameHandler) Interpret(c *gin.Context) {
 		return
 	}
 
-	model := h.resolveModel(req.Model, spec)
+	model, authorized := authorizeAIRequest(c, h.DB, h.Gateway, req.Model, spec.Tier)
+	if !authorized {
+		return
+	}
 	if model == "" {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "no AI model configured"})
 		return

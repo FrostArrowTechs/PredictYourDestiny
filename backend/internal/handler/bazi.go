@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"predictdestiny/internal/ai"
 	"predictdestiny/internal/ai/prompt"
@@ -23,6 +24,7 @@ import (
 // now interpret is open so the pipeline can be validated end-to-end.
 type BaziHandler struct {
 	Gateway ai.Gateway
+	DB      *gorm.DB
 }
 
 // ─── request / response envelopes ─────────────────────────────────
@@ -32,11 +34,11 @@ type BaziHandler struct {
 // trusting a client-supplied chart, so the AI always reasons over a
 // fresh, validated result.
 type baziComputeReq struct {
-	Year           int     `json:"year"    binding:"required,min=1"`
-	Month          int     `json:"month"   binding:"required,min=1"`
-	Day            int     `json:"day"     binding:"required,min=1"`
-	Hour           int     `json:"hour"`
-	Minute         int     `json:"minute"`
+	Year   int `json:"year"    binding:"required,min=1"`
+	Month  int `json:"month"   binding:"required,min=1"`
+	Day    int `json:"day"     binding:"required,min=1"`
+	Hour   int `json:"hour"`
+	Minute int `json:"minute"`
 	// gender 0 = female is a valid value, so we can't use `required`
 	// (which rejects the zero value). min/max accept both 0 and 1.
 	Gender         int     `json:"gender"  binding:"min=0,max=1"`
@@ -130,7 +132,10 @@ func (h *BaziHandler) Interpret(c *gin.Context) {
 	// model resolution: client choice > prompt-recommended tier's
 	// first model > gateway default. We do NOT blindly trust the
 	// client's model id — it must exist in the catalog.
-	model := h.resolveModel(req.Model, spec)
+	model, authorized := authorizeAIRequest(c, h.DB, h.Gateway, req.Model, spec.Tier)
+	if !authorized {
+		return
+	}
 	if model == "" {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "no AI model configured (set ai.models)"})
 		return

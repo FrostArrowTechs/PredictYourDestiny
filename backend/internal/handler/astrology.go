@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"predictdestiny/internal/ai"
 	"predictdestiny/internal/ai/prompt"
@@ -18,20 +19,21 @@ import (
 // POST /api/astrology/interpret — AI reading with streaming support
 type AstrologyHandler struct {
 	Gateway ai.Gateway
+	DB      *gorm.DB
 }
 
 // astrologyComputeReq is the input for natal chart calculation.
 type astrologyComputeReq struct {
-	Year     int     `json:"year" binding:"required,min=1900,max=2100"`
-	Month    int     `json:"month" binding:"required,min=1,max=12"`
-	Day      int     `json:"day" binding:"required,min=1,max=31"`
-	Hour     int     `json:"hour" binding:"min=0,max=23"`
-	Minute   int     `json:"minute" binding:"min=0,max=59"`
-	Longitude float64 `json:"longitude"`
-	Lang     string  `json:"lang"`
-	InterpretDepth string `json:"interpretDepth"`
-	Model    string  `json:"model"`
-	Stream   bool    `json:"stream"`
+	Year           int     `json:"year" binding:"required,min=1900,max=2100"`
+	Month          int     `json:"month" binding:"required,min=1,max=12"`
+	Day            int     `json:"day" binding:"required,min=1,max=31"`
+	Hour           int     `json:"hour" binding:"min=0,max=23"`
+	Minute         int     `json:"minute" binding:"min=0,max=59"`
+	Longitude      float64 `json:"longitude"`
+	Lang           string  `json:"lang"`
+	InterpretDepth string  `json:"interpretDepth"`
+	Model          string  `json:"model"`
+	Stream         bool    `json:"stream"`
 }
 
 // Compute returns the natal chart data without AI interpretation.
@@ -84,13 +86,13 @@ func (h *AstrologyHandler) Interpret(c *gin.Context) {
 
 	// Build Input from request
 	input := fortune.Input{
-		Year:      req.Year,
-		Month:     req.Month,
-		Day:       req.Day,
-		Hour:      req.Hour,
-		Minute:    req.Minute,
-		Longitude: req.Longitude,
-		Lang:      req.Lang,
+		Year:           req.Year,
+		Month:          req.Month,
+		Day:            req.Day,
+		Hour:           req.Hour,
+		Minute:         req.Minute,
+		Longitude:      req.Longitude,
+		Lang:           req.Lang,
 		InterpretDepth: req.InterpretDepth,
 	}
 
@@ -111,7 +113,10 @@ func (h *AstrologyHandler) Interpret(c *gin.Context) {
 		return
 	}
 
-	model := h.resolveModel(req.Model, spec)
+	model, authorized := authorizeAIRequest(c, h.DB, h.Gateway, req.Model, spec.Tier)
+	if !authorized {
+		return
+	}
 	if model == "" {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "no AI model configured"})
 		return

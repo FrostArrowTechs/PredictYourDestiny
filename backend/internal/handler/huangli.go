@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"predictdestiny/internal/ai"
 	"predictdestiny/internal/ai/prompt"
@@ -19,6 +20,7 @@ import (
 // /api/huangli/interpret — AI advice for choosing auspicious dates.
 type HuangliHandler struct {
 	Gateway ai.Gateway
+	DB      *gorm.DB
 }
 
 // huangliComputeReq is the input for both /compute and /interpret.
@@ -98,7 +100,10 @@ func (h *HuangliHandler) Interpret(c *gin.Context) {
 		return
 	}
 
-	model := h.resolveModel(req.Model, spec)
+	model, authorized := authorizeAIRequest(c, h.DB, h.Gateway, req.Model, spec.Tier)
+	if !authorized {
+		return
+	}
 	if model == "" {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "no AI model configured"})
 		return

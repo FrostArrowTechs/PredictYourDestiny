@@ -13,6 +13,16 @@ const configured = import.meta.env.VITE_API_BASE_URL as string | undefined
 export const API_BASE = configured ? `${configured.replace(/\/$/, '')}/api` : SAME_ORIGIN_BASE
 const BASE = API_BASE
 
+function streamHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Accept: 'text/event-stream',
+  }
+  const token = localStorage.getItem('pyd_token')
+  if (token) headers.Authorization = `Bearer ${token}`
+  return headers
+}
+
 export class ApiError extends Error {
   status: number
   body: unknown
@@ -248,7 +258,7 @@ export async function streamBaziInterpret(
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/bazi/interpret`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    headers: streamHeaders(),
     body: JSON.stringify({ ...input, stream: true }),
     signal,
   })
@@ -366,7 +376,7 @@ export async function streamDreamInterpret(
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/dream/interpret`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    headers: streamHeaders(),
     body: JSON.stringify({ ...input, stream: true }),
     signal,
   })
@@ -484,7 +494,7 @@ export async function streamHuangliInterpret(
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/huangli/interpret`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    headers: streamHeaders(),
     body: JSON.stringify({ ...input, stream: true }),
     signal,
   })
@@ -589,7 +599,7 @@ export async function streamZodiacInterpret(
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/zodiac/interpret`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    headers: streamHeaders(),
     body: JSON.stringify({ ...input, stream: true }),
     signal,
   })
@@ -659,7 +669,7 @@ export async function streamCompatibilityInterpret(
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/compatibility/interpret`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    headers: streamHeaders(),
     body: JSON.stringify({ ...input, stream: true }),
     signal,
   })
@@ -761,7 +771,7 @@ export async function streamWeighboneInterpret(
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/weighbone/interpret`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    headers: streamHeaders(),
     body: JSON.stringify({ ...input, stream: true }),
     signal,
   })
@@ -805,7 +815,7 @@ export async function streamDivinationInterpret(
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/divination/interpret`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    headers: streamHeaders(),
     body: JSON.stringify({ ...input, stream: true }),
     signal,
   })
@@ -867,7 +877,7 @@ export async function streamPlumFlowerInterpret(
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/plumflower/interpret`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    headers: streamHeaders(),
     body: JSON.stringify({ ...input, stream: true }),
     signal,
   })
@@ -927,7 +937,7 @@ export async function streamNameInterpret(
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/name/interpret`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    headers: streamHeaders(),
     body: JSON.stringify({ ...input, stream: true }),
     signal,
   })
@@ -1026,7 +1036,7 @@ export async function streamAstrologyInterpret(
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/astrology/interpret`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    headers: streamHeaders(),
     body: JSON.stringify({ ...input, stream: true }),
     signal,
   })
@@ -1084,7 +1094,7 @@ export async function streamConstellationInterpret(
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/constellation/interpret`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    headers: streamHeaders(),
     body: JSON.stringify({ ...input, stream: true }),
     signal,
   })
@@ -1146,7 +1156,7 @@ export async function streamTarotInterpret(
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/tarot/interpret`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    headers: streamHeaders(),
     body: JSON.stringify({ ...input, stream: true }),
     signal,
   })
@@ -1213,7 +1223,7 @@ export async function streamZiweiInterpret(
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/ziwei/interpret`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    headers: streamHeaders(),
     body: JSON.stringify({ ...input, stream: true }),
     signal,
   })

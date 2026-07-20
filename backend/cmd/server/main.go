@@ -15,6 +15,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -35,14 +36,6 @@ import (
 	"predictdestiny/internal/server"
 	"predictdestiny/internal/store"
 	"predictdestiny/internal/version"
-)
-
-// Default admin credentials. Override via env vars:
-//   ADMIN_EMAIL  (default: admin@admin.com)
-//   ADMIN_PASSWORD (default: admin123456)
-const (
-	defaultAdminEmail    = "admin@admin.com"
-	defaultAdminPassword = "admin123456"
 )
 
 func main() {
@@ -110,22 +103,22 @@ func main() {
 		log.Printf("warn: seed character strokes: %v", err)
 	}
 
-		// 3.8) seed tarot cards (idempotent)
-		if err := seedTarotCards(db); err != nil {
-			log.Printf("warn: seed tarot cards: %v", err)
-		}
+	// 3.8) seed tarot cards (idempotent)
+	if err := seedTarotCards(db); err != nil {
+		log.Printf("warn: seed tarot cards: %v", err)
+	}
 
-		// 3.9) seed membership tiers (idempotent)
-		if err := seedMembershipTiers(db); err != nil {
-			log.Printf("warn: seed membership tiers: %v", err)
-		}
+	// 3.9) seed membership tiers (idempotent)
+	if err := seedMembershipTiers(db); err != nil {
+		log.Printf("warn: seed membership tiers: %v", err)
+	}
 
-		// 3.10) seed default admin account (idempotent)
-		if err := seedAdminUser(db); err != nil {
-			log.Printf("warn: seed admin user: %v", err)
-		}
+	// 3.10) bootstrap the first admin when explicit credentials are provided
+	if err := seedAdminUser(db); err != nil {
+		log.Printf("warn: seed admin user: %v", err)
+	}
 
-		// 4) seed default settings
+	// 4) seed default settings
 	settingStore, err := store.NewSettingStore(db, defaultSettings())
 	if err != nil {
 		log.Fatalf("seed settings: %v", err)
@@ -312,102 +305,97 @@ func seedTarotCards(db *gorm.DB) error {
 		return nil
 	}
 
-		if err := db.Create(&cards).Error; err != nil {
-			return err
-		}
-		log.Printf("seeded %d tarot cards", len(cards))
-		return nil
+	if err := db.Create(&cards).Error; err != nil {
+		return err
+	}
+	log.Printf("seeded %d tarot cards", len(cards))
+	return nil
+}
+
+// seedMembershipTiers creates the default membership tiers (free/basic/premium)
+// if they don't already exist.
+func seedMembershipTiers(db *gorm.DB) error {
+	tiers := []model.MembershipTier{
+		{
+			Code:       model.TierCodeFree,
+			Name:       "免费用户",
+			DailyQuota: 5,
+			Features:   `["basic_interpret"]`,
+			PriceMonth: 0,
+			SortOrder:  1,
+		},
+		{
+			Code:       model.TierCodeBasic,
+			Name:       "基础会员",
+			DailyQuota: 20,
+			Features:   `["basic_interpret","deep_interpret","history_save"]`,
+			PriceMonth: 990, // ¥9.90/month
+			SortOrder:  2,
+		},
+		{
+			Code:       model.TierCodePremium,
+			Name:       "高级会员",
+			DailyQuota: -1, // unlimited
+			Features:   `["basic_interpret","deep_interpret","history_save","priority_support"]`,
+			PriceMonth: 2990, // ¥29.90/month
+			SortOrder:  3,
+		},
 	}
 
-	// seedMembershipTiers creates the default membership tiers (free/basic/premium)
-	// if they don't already exist.
-	func seedMembershipTiers(db *gorm.DB) error {
-		tiers := []model.MembershipTier{
-			{
-				Code:       model.TierCodeFree,
-				Name:       "免费用户",
-				DailyQuota: 5,
-				Features:   `["basic_interpret"]`,
-				PriceMonth: 0,
-				SortOrder:  1,
-			},
-			{
-				Code:       model.TierCodeBasic,
-				Name:       "基础会员",
-				DailyQuota: 20,
-				Features:   `["basic_interpret","deep_interpret","history_save"]`,
-				PriceMonth: 990, // ¥9.90/month
-				SortOrder:  2,
-			},
-			{
-				Code:       model.TierCodePremium,
-				Name:       "高级会员",
-				DailyQuota: -1, // unlimited
-				Features:   `["basic_interpret","deep_interpret","history_save","priority_support"]`,
-				PriceMonth: 2990, // ¥29.90/month
-				SortOrder:  3,
-			},
-		}
-
-		for _, tier := range tiers {
-			var existing model.MembershipTier
-			if err := db.Where("code = ?", tier.Code).First(&existing).Error; err == gorm.ErrRecordNotFound {
-				if err := db.Create(&tier).Error; err != nil {
-					return err
-				}
-				log.Printf("seeded membership tier: %s", tier.Code)
+	for _, tier := range tiers {
+		var existing model.MembershipTier
+		if err := db.Where("code = ?", tier.Code).First(&existing).Error; err == gorm.ErrRecordNotFound {
+			if err := db.Create(&tier).Error; err != nil {
+				return err
 			}
+			log.Printf("seeded membership tier: %s", tier.Code)
 		}
+	}
+	return nil
+}
+
+// seedAdminUser creates the first admin only when the operator provides
+// explicit bootstrap credentials.
+//
+// Credentials are read from env (ADMIN_EMAIL / ADMIN_PASSWORD) and
+// are never defaulted or written to logs.
+//
+// Idempotent: if any admin already exists, this is a no-op so
+// password changes via the admin panel are preserved across restarts.
+func seedAdminUser(db *gorm.DB) error {
+	var count int64
+	if err := db.Model(&model.User{}).Where("role = ?", "admin").Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
 		return nil
 	}
 
-	// seedAdminUser creates a default admin account on first run so
-	// the operator can log in to the admin panel immediately.
-	//
-	// Credentials are read from env (ADMIN_EMAIL / ADMIN_PASSWORD) and
-	// fall back to a known default for local dev. Production deployments
-	// should always set these via the platform's secret manager.
-	//
-	// Idempotent: if any admin already exists, this is a no-op so
-	// password changes via the admin panel are preserved across restarts.
-	func seedAdminUser(db *gorm.DB) error {
-		var count int64
-		if err := db.Model(&model.User{}).Where("role = ?", "admin").Count(&count).Error; err != nil {
-			return err
-		}
-		if count > 0 {
-			return nil
-		}
-
-		email := defaultAdminEmail
-		if v := strings.TrimSpace(os.Getenv("ADMIN_EMAIL")); v != "" {
-			email = v
-		}
-		password := defaultAdminPassword
-		if v := strings.TrimSpace(os.Getenv("ADMIN_PASSWORD")); v != "" {
-			password = v
-		}
-
-		hashed, err := auth.HashPassword(password)
-		if err != nil {
-			return err
-		}
-
-		admin := model.User{
-			Email:       email,
-			Password:    hashed,
-			DisplayName: "Administrator",
-			Role:        "admin",
-		}
-		if err := db.Create(&admin).Error; err != nil {
-			return err
-		}
-
-		log.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-		log.Printf("🔑 Default admin account created")
-		log.Printf("   Email:    %s", email)
-		log.Printf("   Password: %s", password)
-		log.Printf("   (Change it from the admin panel after first login)")
-		log.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	email := strings.TrimSpace(os.Getenv("ADMIN_EMAIL"))
+	password := strings.TrimSpace(os.Getenv("ADMIN_PASSWORD"))
+	if email == "" && password == "" {
+		log.Printf("admin bootstrap skipped: set ADMIN_EMAIL and ADMIN_PASSWORD to create the first admin")
 		return nil
 	}
+	if email == "" || len(password) < 12 {
+		return errors.New("ADMIN_EMAIL and an ADMIN_PASSWORD of at least 12 characters are required")
+	}
+
+	hashed, err := auth.HashPassword(password)
+	if err != nil {
+		return err
+	}
+
+	admin := model.User{
+		Email:       email,
+		Password:    hashed,
+		DisplayName: "Administrator",
+		Role:        "admin",
+	}
+	if err := db.Create(&admin).Error; err != nil {
+		return err
+	}
+
+	log.Printf("bootstrap admin account created for %s", email)
+	return nil
+}

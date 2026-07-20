@@ -64,7 +64,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	// Create user
+	// Create the user and their default free membership atomically.
 	user := model.User{
 		Email:       req.Email,
 		Password:    hashedPassword,
@@ -72,7 +72,16 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		Role:        "user", // default role
 	}
 
-	if err := h.DB.Create(&user).Error; err != nil {
+	if err := h.DB.Transaction(func(tx *gorm.DB) error {
+		var free model.MembershipTier
+		if err := tx.Where("code = ?", model.TierCodeFree).First(&free).Error; err != nil {
+			return err
+		}
+		if err := tx.Create(&user).Error; err != nil {
+			return err
+		}
+		return tx.Create(&model.UserMembership{UserID: user.ID, TierID: free.ID}).Error
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create user"})
 		return
 	}

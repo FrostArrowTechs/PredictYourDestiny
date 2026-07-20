@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"predictdestiny/internal/ai"
 	"predictdestiny/internal/ai/prompt"
@@ -16,6 +17,7 @@ import (
 // ZodiacHandler exposes the zodiac fortune endpoints.
 type ZodiacHandler struct {
 	Gateway ai.Gateway
+	DB      *gorm.DB
 }
 
 // zodiacComputeReq is the input for zodiac fortune calculation.
@@ -91,7 +93,10 @@ func (h *ZodiacHandler) Interpret(c *gin.Context) {
 		return
 	}
 
-	model := h.resolveModel(req.Model, spec)
+	model, authorized := authorizeAIRequest(c, h.DB, h.Gateway, req.Model, spec.Tier)
+	if !authorized {
+		return
+	}
 	if model == "" {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "no AI model configured"})
 		return
