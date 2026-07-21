@@ -3,12 +3,13 @@ package fortune
 import (
 	"container/list"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/6tail/lunar-go/calendar"
 	"github.com/6tail/lunar-go/LunarUtil"
+	"github.com/6tail/lunar-go/calendar"
 )
 
 // BaziEngine implements FortuneEngine for the Four Pillars (八字)
@@ -26,9 +27,8 @@ import (
 //   - 神煞 (天乙贵人 / 文昌 / 驿马 / 桃花 / 华盖 …) — table-based
 //   - 五行统计 + 旺衰 + 用神初判 — heuristic, not AI
 //
-// The "初判" (preliminary judgement) wording is deliberate: 用神
-// determination in real practice needs human judgement; this engine
-// only emits a confidence-tagged hint that the AI is free to revise.
+// 旺衰/用神 are explicitly separated as versioned interpretive output. The AI
+// may explain them, but must never revise the calculated chart.
 type BaziEngine struct{}
 
 // Name returns the engine identifier (also FortuneRecord.Kind).
@@ -47,18 +47,18 @@ func init() { Register(BaziEngine{}) }
 // stores the gan-zhi pair plus the derived attributes lunar-go
 // computes for it.
 type Pillar struct {
-	Position  string   `json:"position"`            // 年|月|日|时
-	GanZhi    string   `json:"ganZhi"`              // e.g. "甲子"
-	Gan       string   `json:"gan"`                 // 天干
-	Zhi       string   `json:"zhi"`                 // 地支
-	WuXing    string   `json:"wuXing"`              // 五行 (e.g. "木水")
-	NaYin     string   `json:"naYin"`               // 纳音 (e.g. "海中金")
-	HideGan   []string `json:"hideGan"`             // 地支藏干
-	ShiShenGan string  `json:"shiShenGan"`          // 天干十神 (日柱为"日主")
-	ShiShenZhi []string `json:"shiShenZhi"`         // 地支藏干十神
-	DiShi     string   `json:"diShi"`               // 十二长生
-	Xun       string   `json:"xun"`                 // 所在旬
-	XunKong   string   `json:"xunKong"`             // 旬空
+	Position   string   `json:"position"`   // 年|月|日|时
+	GanZhi     string   `json:"ganZhi"`     // e.g. "甲子"
+	Gan        string   `json:"gan"`        // 天干
+	Zhi        string   `json:"zhi"`        // 地支
+	WuXing     string   `json:"wuXing"`     // 五行 (e.g. "木水")
+	NaYin      string   `json:"naYin"`      // 纳音 (e.g. "海中金")
+	HideGan    []string `json:"hideGan"`    // 地支藏干
+	ShiShenGan string   `json:"shiShenGan"` // 天干十神 (日柱为"日主")
+	ShiShenZhi []string `json:"shiShenZhi"` // 地支藏干十神
+	DiShi      string   `json:"diShi"`      // 十二长生
+	Xun        string   `json:"xun"`        // 所在旬
+	XunKong    string   `json:"xunKong"`    // 旬空
 }
 
 // ShenSha is a single 神煞 entry found on a pillar.
@@ -71,20 +71,20 @@ type ShenSha struct {
 
 // DaYun is one 10-year major luck period.
 type DaYun struct {
-	Index      int        `json:"index"`      // 0-based; 0 is the pre-起运 period
-	GanZhi     string     `json:"ganZhi"`     // 干支 (empty for index 0)
-	StartYear  int        `json:"startYear"`  // 公历起年 (含)
-	EndYear    int        `json:"endYear"`    // 公历止年 (含)
-	StartAge   int        `json:"startAge"`   // 起岁 (虚岁, 含)
-	EndAge     int        `json:"endAge"`     // 止岁 (虚岁, 含)
-	LiuNian    []LiuNian  `json:"liuNian"`    // 逐年干支
+	Index     int       `json:"index"`     // 0-based; 0 is the pre-起运 period
+	GanZhi    string    `json:"ganZhi"`    // 干支 (empty for index 0)
+	StartYear int       `json:"startYear"` // 公历起年 (含)
+	EndYear   int       `json:"endYear"`   // 公历止年 (含)
+	StartAge  int       `json:"startAge"`  // 起岁 (虚岁, 含)
+	EndAge    int       `json:"endAge"`    // 止岁 (虚岁, 含)
+	LiuNian   []LiuNian `json:"liuNian"`   // 逐年干支
 }
 
 // LiuNian is one year within a DaYun.
 type LiuNian struct {
-	Year    int    `json:"year"`    // 公历年
-	Age     int    `json:"age"`     // 虚岁
-	GanZhi  string `json:"ganZhi"`  // 流年干支
+	Year   int    `json:"year"`   // 公历年
+	Age    int    `json:"age"`    // 虚岁
+	GanZhi string `json:"ganZhi"` // 流年干支
 }
 
 // WuXingStat is the count of each element across the chart.
@@ -115,45 +115,69 @@ type YongYin struct {
 	Reason     string   `json:"reason"`     // short heuristic rationale
 }
 
+type BaziInterpretation struct {
+	RuleSetVersion string    `json:"ruleSetVersion"`
+	Nature         string    `json:"nature"`
+	InputFacts     []Fact    `json:"inputFacts"`
+	Warnings       []string  `json:"warnings"`
+	WangShuai      WangShuai `json:"wangShuai"`
+	YongYin        YongYin   `json:"yongYin"`
+}
+
 // BaziChart is the complete structured output of Compute. It is what
 // gets serialized to Result.Data and to FortuneRecord.ResultJSON.
 type BaziChart struct {
 	// Subject provenance
-	Solar       string  `json:"solar"`       // 输入公历 (校正后)
-	Lunar       string  `json:"lunar"`       // 农历
-	SolarISO    string  `json:"solarISO"`    // ISO 8601 of corrected time
-	Longitude   float64 `json:"longitude"`   // 经度 (0 = 未校正)
-	TrueSolar   bool    `json:"trueSolar"`   // 是否做了真太阳时校正
-	Correction  string  `json:"correction"`  // 校正说明
+	Solar                     string      `json:"solar"`      // 规则校正后的排盘时间
+	Lunar                     string      `json:"lunar"`      // 农历
+	SolarISO                  string      `json:"solarISO"`   // ISO 8601 of corrected time
+	Longitude                 float64     `json:"longitude"`  // 经度 (0 = 未校正)
+	TrueSolar                 bool        `json:"trueSolar"`  // 是否做了真太阳时校正
+	Correction                string      `json:"correction"` // 校正说明
+	TimeZone                  string      `json:"timeZone"`
+	SolarTimeMode             string      `json:"solarTimeMode"`
+	LongitudeCorrectionMinute int         `json:"longitudeCorrectionMinutes"`
+	EquationOfTimeMinute      float64     `json:"equationOfTimeMinutes"`
+	TotalCorrectionMinute     int         `json:"totalCorrectionMinutes"`
+	RuleSetVersion            string      `json:"ruleSetVersion"`
+	DayBoundary               string      `json:"dayBoundary"`
+	CalendarLibraryVersion    string      `json:"calendarLibraryVersion"`
+	PreviousJie               JieBoundary `json:"previousJie"`
+	NextJie                   JieBoundary `json:"nextJie"`
+	YunMethod                 string      `json:"yunMethod"`
 
 	// Four pillars, in 年/月/日/时 order
-	Pillars     []Pillar `json:"pillars"`
+	Pillars []Pillar `json:"pillars"`
 
 	// Derived columns
-	TaiYuan     string `json:"taiYuan"`     // 胎元
-	TaiYuanNaYin string `json:"taiYuanNaYin"`
-	TaiXi       string `json:"taiXi"`       // 胎息
-	TaiXiNaYin  string `json:"taiXiNaYin"`
-	MingGong    string `json:"mingGong"`    // 命宫
+	TaiYuan       string `json:"taiYuan"` // 胎元
+	TaiYuanNaYin  string `json:"taiYuanNaYin"`
+	TaiXi         string `json:"taiXi"` // 胎息
+	TaiXiNaYin    string `json:"taiXiNaYin"`
+	MingGong      string `json:"mingGong"` // 命宫
 	MingGongNaYin string `json:"mingGongNaYin"`
-	ShenGong    string `json:"shenGong"`    // 身宫
+	ShenGong      string `json:"shenGong"` // 身宫
 	ShenGongNaYin string `json:"shenGongNaYin"`
 
-	ShenSha     []ShenSha `json:"shenSha"`
+	ShenSha []ShenSha `json:"shenSha"`
 
 	// Luck sequence
-	StartYear   int      `json:"startYear"`   // 起运年数
-	StartMonth  int      `json:"startMonth"`  // 起运月数
-	StartDay    int      `json:"startDay"`    // 起运天数
-	StartHour   int      `json:"startHour"`   // 起运小时
-	Forward     bool     `json:"forward"`     // 顺排/逆排
-	StartSolar  string   `json:"startSolar"`  // 起运公历日期
-	DaYun       []DaYun  `json:"daYun"`       // 大运 (8-10 轮)
+	StartYear  int     `json:"startYear"`  // 起运年数
+	StartMonth int     `json:"startMonth"` // 起运月数
+	StartDay   int     `json:"startDay"`   // 起运天数
+	StartHour  int     `json:"startHour"`  // 起运小时
+	Forward    bool    `json:"forward"`    // 顺排/逆排
+	StartSolar string  `json:"startSolar"` // 起运公历日期
+	DaYun      []DaYun `json:"daYun"`      // 大运 (8-10 轮)
 
 	// Element analysis
-	WuXingStats []WuXingStat `json:"wuXingStats"`
-	WangShuai   WangShuai    `json:"wangShuai"`
-	YongYin     YongYin      `json:"yongYin"`
+	WuXingStats    []WuXingStat       `json:"wuXingStats"`
+	Interpretation BaziInterpretation `json:"interpretation"`
+}
+
+type JieBoundary struct {
+	Name string `json:"name"`
+	Time string `json:"time"`
 }
 
 // ─── Compute ──────────────────────────────────────────────────────
@@ -165,18 +189,41 @@ func (BaziEngine) Compute(in Input) (*Result, error) {
 	if err := validateBaziInput(in); err != nil {
 		return nil, err
 	}
+	ruleSet := ""
+	if in.Birth != nil {
+		ruleSet = in.Birth.RuleSet
+	}
+	rules, err := resolveBaziRules(ruleSet)
+	if err != nil {
+		return nil, err
+	}
+	_, timeZone, err := baziTimeZone(in.Birth)
+	if err != nil {
+		return nil, err
+	}
 
 	// 真太阳时: 1° east of 120°E advances local apparent solar time
 	// by ~4 minutes; west delays. We adjust the wall clock by
 	// (longitude − 120) × 4 minutes. lunar-go itself is timezone-free
 	// and treats the supplied hour/minute as Beijing time, so this
 	// correction must happen BEFORE we hand the time to it.
+	longitudeCorrection := 0
+	equationCorrection := 0.0
 	corrMin := 0
 	trueSolar := false
 	correction := "未做真太阳时校正（按北京时间 UTC+8 计算）"
 	year, month, day, hour, minute := in.Year, in.Month, in.Day, in.Hour, in.Minute
-	if in.Longitude != 0 {
-		corrMin = int((in.Longitude - 120.0) * 4.0)
+	hasLongitude := in.Longitude != 0
+	if in.Birth != nil {
+		hasLongitude = in.Birth.Longitude != nil
+	}
+	if hasLongitude {
+		longitudeCorrection, equationCorrection, corrMin, timeZone, err = apparentSolarCorrection(
+			in.Birth, in.Longitude, year, month, day, hour, minute,
+		)
+		if err != nil {
+			return nil, err
+		}
 		trueSolar = true
 		// advance or retard the input instant by corrMin minutes
 		t := time.Date(year, time.Month(month), day, hour, minute, 0, 0, time.UTC)
@@ -186,13 +233,15 @@ func (BaziEngine) Compute(in Input) (*Result, error) {
 		if corrMin < 0 {
 			sign = ""
 		}
-		correction = fmt.Sprintf("真太阳时校正：经度 %.2f°，时间偏移 %s%d 分钟（1°≈4分钟）",
-			in.Longitude, sign, corrMin)
+		correction = fmt.Sprintf("真太阳时校正：经度差 %+d 分钟，均时差 %+.1f 分钟，总偏移 %s%d 分钟",
+			longitudeCorrection, equationCorrection, sign, corrMin)
 	}
 
 	solar := calendar.NewSolar(year, month, day, hour, minute, 0)
 	lunar := solar.GetLunar()
 	ec := lunar.GetEightChar()
+	ec.SetSect(rules.EightCharSect)
+	prevJie, nextJie := lunar.GetPrevJie(), lunar.GetNextJie()
 
 	chart := &BaziChart{
 		Solar:      fmt.Sprintf("%04d-%02d-%02d %02d:%02d", year, month, day, hour, minute),
@@ -201,6 +250,22 @@ func (BaziEngine) Compute(in Input) (*Result, error) {
 		Longitude:  in.Longitude,
 		TrueSolar:  trueSolar,
 		Correction: correction,
+		TimeZone:   timeZone,
+		SolarTimeMode: func() string {
+			if trueSolar {
+				return "local_apparent_solar"
+			}
+			return "legal_time"
+		}(),
+		LongitudeCorrectionMinute: longitudeCorrection,
+		EquationOfTimeMinute:      math.Round(equationCorrection*10) / 10,
+		TotalCorrectionMinute:     corrMin,
+		RuleSetVersion:            rules.Version,
+		DayBoundary:               rules.DayBoundary,
+		CalendarLibraryVersion:    BaziCalendarVersion,
+		PreviousJie:               JieBoundary{Name: prevJie.GetName(), Time: prevJie.GetSolar().ToYmdHms()},
+		NextJie:                   JieBoundary{Name: nextJie.GetName(), Time: nextJie.GetSolar().ToYmdHms()},
+		YunMethod:                 "minute_difference_3days_per_year",
 	}
 
 	// ── four pillars ──
@@ -220,7 +285,7 @@ func (BaziEngine) Compute(in Input) (*Result, error) {
 	chart.ShenSha = computeShenSha(chart.Pillars)
 
 	// ── 大运 + 流年 ──
-	yun := ec.GetYun(int(in.Gender))
+	yun := ec.GetYunBySect(int(in.Gender), rules.YunSect)
 	chart.StartYear = yun.GetStartYear()
 	chart.StartMonth = yun.GetStartMonth()
 	chart.StartDay = yun.GetStartDay()
@@ -231,8 +296,19 @@ func (BaziEngine) Compute(in Input) (*Result, error) {
 
 	// ── 五行 / 旺衰 / 用神 ──
 	chart.WuXingStats = computeWuXingStats(chart.Pillars)
-	chart.WangShuai = computeWangShuai(chart.Pillars, chart.WuXingStats)
-	chart.YongYin = computeYongYin(chart.Pillars, chart.WangShuai)
+	wangShuai := computeWangShuai(chart.Pillars, chart.WuXingStats)
+	chart.Interpretation = BaziInterpretation{
+		RuleSetVersion: "bazi-wangshuai-heuristic-v1",
+		Nature:         "interpretive_heuristic",
+		InputFacts: []Fact{
+			{Key: "dayMaster", Value: chart.Pillars[2].Gan},
+			{Key: "monthBranch", Value: chart.Pillars[1].Zhi},
+			{Key: "wuXingStats", Value: chart.WuXingStats},
+		},
+		Warnings:  []string{"旺衰与喜用神属于传统解释规则，不是历法基础事实，也不代表科学验证结论"},
+		WangShuai: wangShuai,
+		YongYin:   computeYongYin(chart.Pillars, wangShuai),
+	}
 
 	return &Result{
 		Kind: KindBazi,
@@ -242,8 +318,8 @@ func (BaziEngine) Compute(in Input) (*Result, error) {
 			"solar":       chart.Solar,
 			"lunar":       chart.Lunar,
 			"trueSolar":   fmt.Sprintf("%v", chart.TrueSolar),
-			"dayMaster":   chart.Pillars[2].Gan,                  // 日主
-			"dayMasterWX": wuxingOfGan(chart.Pillars[2].Gan),     // 日主五行
+			"dayMaster":   chart.Pillars[2].Gan,              // 日主
+			"dayMasterWX": wuxingOfGan(chart.Pillars[2].Gan), // 日主五行
 		},
 	}, nil
 }
@@ -411,7 +487,7 @@ func computeWuXingStats(pillars []Pillar) []WuXingStat {
 // It is intentionally simple — the AI refines it in interpretation.
 func computeWangShuai(pillars []Pillar, stats []WuXingStat) WangShuai {
 	dayGan := pillars[2].Gan
-	dayWX := wuxingOfGan(dayGan)            // 日主五行
+	dayWX := wuxingOfGan(dayGan)              // 日主五行
 	monthZhiWX := wuxingOfZhi(pillars[1].Zhi) // 月令五行
 
 	// 生克关系: who generates whom, who restrains whom
@@ -485,10 +561,10 @@ func computeYongYin(pillars []Pillar, ws WangShuai) YongYin {
 	ke := map[string]string{"金": "木", "木": "土", "土": "水", "水": "火", "火": "金"}
 
 	// 生我的 = 印, 同我的 = 比, 我生的 = 食伤, 我克的 = 财, 克我的 = 官杀
-	yin := gen[ke[dayWX]] // 生我者
-	bi := dayWX           // 同我者
-	shi := gen[dayWX]     // 我生者
-	cai := ke[dayWX]      // 我克者
+	yin := gen[ke[dayWX]]  // 生我者
+	bi := dayWX            // 同我者
+	shi := gen[dayWX]      // 我生者
+	cai := ke[dayWX]       // 我克者
 	guan := ke[gen[dayWX]] // 克我者 ... wait, 克我者 = ke[dayWX] reverse
 	// correct 克我: the element that 克 dayWX is the one whose 克 target is dayWX
 	// ke[?] = dayWX → ? is the 克 dayWX source. Build reverse map:
@@ -656,4 +732,3 @@ func computeShenSha(pillars []Pillar) []ShenSha {
 	})
 	return dedup
 }
-

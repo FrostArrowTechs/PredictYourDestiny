@@ -134,11 +134,11 @@ func TestBaziComputeBadInput(t *testing.T) {
 	h := &BaziHandler{}
 	r := newTestRouter(h)
 	cases := []string{
-		`{"year":1899,"month":1,"day":1,"gender":1}`,
+		`{"year":1899,"month":1,"day":1,"hour":12,"gender":1}`,
 		`{"year":2000,"month":13,"day":1,"gender":1}`,
 		`{"year":2000,"month":1,"day":1,"hour":25,"gender":1}`,
 		`{"year":2000,"month":1,"day":1,"gender":2}`,
-		`{"year":2000,"month":1,"day":1,"gender":1,"longitude":200}`,
+		`{"year":2000,"month":1,"day":1,"hour":12,"gender":1,"longitude":200}`,
 		`{}`,
 	}
 	for _, body := range cases {
@@ -146,6 +146,21 @@ func TestBaziComputeBadInput(t *testing.T) {
 		if w.Code != http.StatusBadRequest {
 			t.Errorf("body %s: status = %d, want 400", body, w.Code)
 		}
+	}
+}
+
+func TestBaziDistinguishesUnknownTimeFromMidnight(t *testing.T) {
+	r := newTestRouter(&BaziHandler{})
+	unknown := doJSON(t, r, "/api/bazi/compute",
+		`{"year":2000,"month":1,"day":1,"timePrecision":"unknown","gender":1}`)
+	if unknown.Code != http.StatusOK || !strings.Contains(unknown.Body.String(), `"variants":[{`) {
+		t.Fatalf("unknown status = %d, body = %s", unknown.Code, unknown.Body.String())
+	}
+
+	midnight := doJSON(t, r, "/api/bazi/compute",
+		`{"year":2000,"month":1,"day":1,"hour":0,"minute":0,"timePrecision":"minute","gender":1}`)
+	if midnight.Code != http.StatusOK {
+		t.Fatalf("midnight status = %d, body = %s", midnight.Code, midnight.Body.String())
 	}
 }
 
@@ -215,7 +230,7 @@ func TestBaziInterpretModelResolution(t *testing.T) {
 
 	// no model → brief tier → first free model
 	w := doJSON(t, r, "/api/bazi/interpret",
-		`{"year":2000,"month":1,"day":1,"hour":12,"gender":1,"lang":"zh-CN"}`)
+		`{"year":2000,"month":1,"day":1,"hour":12,"minute":0,"gender":1,"lang":"zh-CN"}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, %s", w.Code, w.Body.String())
 	}
@@ -225,21 +240,21 @@ func TestBaziInterpretModelResolution(t *testing.T) {
 
 	// explicit paid model is rejected for a free member
 	w = doJSON(t, r, "/api/bazi/interpret",
-		`{"year":2000,"month":1,"day":1,"hour":12,"gender":1,"lang":"zh-CN","model":"paid-a"}`)
+		`{"year":2000,"month":1,"day":1,"hour":12,"minute":0,"gender":1,"lang":"zh-CN","model":"paid-a"}`)
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403: %s", w.Code, w.Body.String())
 	}
 
 	// explicit unknown model is rejected rather than silently substituted
 	w = doJSON(t, r, "/api/bazi/interpret",
-		`{"year":2000,"month":1,"day":1,"hour":12,"gender":1,"lang":"zh-CN","model":"does-not-exist"}`)
+		`{"year":2000,"month":1,"day":1,"hour":12,"minute":0,"gender":1,"lang":"zh-CN","model":"does-not-exist"}`)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400: %s", w.Code, w.Body.String())
 	}
 
 	// deep prompt request cannot elevate a free user; it uses a free model
 	w = doJSON(t, r, "/api/bazi/interpret",
-		`{"year":2000,"month":1,"day":1,"hour":12,"gender":1,"lang":"zh-CN","interpretDepth":"deep"}`)
+		`{"year":2000,"month":1,"day":1,"hour":12,"minute":0,"gender":1,"lang":"zh-CN","interpretDepth":"deep"}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, %s", w.Code, w.Body.String())
 	}
@@ -254,7 +269,7 @@ func TestBaziInterpretNoGateway(t *testing.T) {
 	h := &BaziHandler{} // Gateway nil
 	r := newTestRouter(h)
 	w := doJSON(t, r, "/api/bazi/interpret",
-		`{"year":2000,"month":1,"day":1,"hour":12,"gender":1,"lang":"zh-CN"}`)
+		`{"year":2000,"month":1,"day":1,"hour":12,"minute":0,"gender":1,"lang":"zh-CN"}`)
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want 503", w.Code)
 	}
@@ -267,7 +282,7 @@ func TestBaziInterpretNoModels(t *testing.T) {
 	h := &BaziHandler{Gateway: gw}
 	r := newTestRouter(h)
 	w := doJSON(t, r, "/api/bazi/interpret",
-		`{"year":2000,"month":1,"day":1,"hour":12,"gender":1,"lang":"zh-CN"}`)
+		`{"year":2000,"month":1,"day":1,"hour":12,"minute":0,"gender":1,"lang":"zh-CN"}`)
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want 503", w.Code)
 	}
@@ -291,7 +306,7 @@ func TestBaziInterpretStream(t *testing.T) {
 	h := &BaziHandler{Gateway: gw}
 	r := newTestRouter(h)
 	w := doJSON(t, r, "/api/bazi/interpret",
-		`{"year":2000,"month":1,"day":1,"hour":12,"gender":1,"lang":"zh-CN","stream":true}`)
+		`{"year":2000,"month":1,"day":1,"hour":12,"minute":0,"gender":1,"lang":"zh-CN","stream":true}`)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())

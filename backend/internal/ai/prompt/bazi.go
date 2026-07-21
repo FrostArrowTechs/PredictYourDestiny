@@ -11,7 +11,7 @@
 //   - User:   the structured chart as plain text + the question.
 //   - Tier:   free → brief template; paid → deep template.
 //   - i18n:   a Lang field on fortune.Input selects the output
-//             language; unknown langs fall back to 简体中文.
+//     language; unknown langs fall back to 简体中文.
 package prompt
 
 import (
@@ -25,23 +25,23 @@ import (
 // keep it small (system persona, section headings, disclaimers) so
 // adding a language is one struct literal, not a rewrite.
 type baziLang struct {
-	langName  string // human label for logging
-	persona   string // "你是一位资深的八字命理师…"
-	rules     []string
+	langName   string // human label for logging
+	persona    string // "你是一位资深的八字命理师…"
+	rules      []string
 	disclaimer string
-	sections  baziSections
-	briefHint string // appended for free tier
-	deepHint  string // appended for paid tier
+	sections   baziSections
+	briefHint  string // appended for free tier
+	deepHint   string // appended for paid tier
 }
 
 type baziSections struct {
-	pattern   string // 格局分析
-	yongShen  string // 用神喜忌
+	pattern     string // 格局分析
+	yongShen    string // 用神喜忌
 	personality string // 性格特质
-	career    string // 事业方向
-	wealth    string // 财运
-	love      string // 感情
-	health    string // 健康提示
+	career      string // 事业方向
+	wealth      string // 财运
+	love        string // 感情
+	health      string // 健康提示
 }
 
 var baziLangs = map[string]baziLang{
@@ -53,6 +53,7 @@ var baziLangs = map[string]baziLang{
 			"输出分章节，使用给定的章节标题",
 			"语气平和客观，避免绝对化断语，强调\"趋势\"与\"可能性\"",
 			"不得输出医疗诊断、投资建议、违法内容的明确指令",
+			"不得修改四柱、节气、日界或起运等结构化计算事实；旺衰和喜用神仅按已声明的解释规则说明",
 			"结尾附简短免责声明",
 		},
 		disclaimer: "命理仅供参考，人生在于自身抉择与努力。",
@@ -72,6 +73,7 @@ var baziLangs = map[string]baziLang{
 			"輸出分章節，使用給定的章節標題",
 			"語氣平和客觀，避免絕對化斷語，強調「趨勢」與「可能性」",
 			"不得輸出醫療診斷、投資建議、違法內容的明確指令",
+			"不得修改四柱、節氣、日界或起運等結構化計算事實；旺衰和喜用神僅按已聲明的解釋規則說明",
 			"結尾附簡短免責聲明",
 		},
 		disclaimer: "命理僅供參考，人生在於自身抉擇與努力。",
@@ -211,10 +213,11 @@ func buildBaziUser(L baziLang, c *fortune.BaziChart, depth string) string {
 	for _, s := range c.WuXingStats {
 		fmt.Fprintf(&b, "%s：%d次（%d%%）\n", s.Element, s.Count, s.Percent)
 	}
-	fmt.Fprintf(&b, "旺衰：%s\n", c.WangShuai.Summary)
+	fmt.Fprintf(&b, "解释规则：%s（%s）\n", c.Interpretation.RuleSetVersion, c.Interpretation.Nature)
+	fmt.Fprintf(&b, "旺衰：%s\n", c.Interpretation.WangShuai.Summary)
 	fmt.Fprintf(&b, "用神初判：%s（喜 %s / 忌 %s）——%s\n",
-		c.YongYin.YongShen, strings.Join(c.YongYin.Xi, "/"),
-		strings.Join(c.YongYin.Ji, "/"), c.YongYin.Reason)
+		c.Interpretation.YongYin.YongShen, strings.Join(c.Interpretation.YongYin.Xi, "/"),
+		strings.Join(c.Interpretation.YongYin.Ji, "/"), c.Interpretation.YongYin.Reason)
 
 	b.WriteString("\n【解读要求】\n")
 	if depth == fortune.DepthDeep {

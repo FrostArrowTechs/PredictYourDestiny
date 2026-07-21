@@ -24,11 +24,7 @@ type ZiweiHandler struct {
 
 // ziweiComputeReq is the input for a Ziwei chart.
 type ziweiComputeReq struct {
-	Year           int    `json:"year" binding:"required,min=1900,max=2100"`
-	Month          int    `json:"month" binding:"required,min=1,max=12"`
-	Day            int    `json:"day" binding:"required,min=1,max=31"`
-	Hour           int    `json:"hour" binding:"min=0,max=23"`
-	Minute         int    `json:"minute" binding:"min=0,max=59"`
+	fortune.BirthContext
 	Gender         int    `json:"gender" binding:"min=0,max=1"`
 	Lang           string `json:"lang"`
 	InterpretDepth string `json:"interpretDepth"`
@@ -36,21 +32,45 @@ type ziweiComputeReq struct {
 	Stream         bool   `json:"stream"`
 }
 
-func (r ziweiComputeReq) toFortuneInput() fortune.Input {
+func (r ziweiComputeReq) toFortuneInput() (fortune.Input, error) {
+	birth, hour, minute, err := r.BirthContext.RequiredClock()
+	if err != nil {
+		return fortune.Input{}, err
+	}
+	if err := validateBirthYear(birth, 1900, 2100); err != nil {
+		return fortune.Input{}, err
+	}
 	lang := r.Lang
 	if lang == "" {
 		lang = "zh-CN"
 	}
 	return fortune.Input{
-		Year:           r.Year,
-		Month:          r.Month,
-		Day:            r.Day,
-		Hour:           r.Hour,
-		Minute:         r.Minute,
+		Birth:          &birth,
+		Year:           birth.Year,
+		Month:          birth.Month,
+		Day:            birth.Day,
+		Hour:           hour,
+		Minute:         minute,
 		Gender:         fortune.Gender(r.Gender),
 		Lang:           lang,
 		InterpretDepth: r.InterpretDepth,
+	}, nil
+}
+
+func (r ziweiComputeReq) toUncertaintyInput() (fortune.Input, error) {
+	birth, err := r.BirthContext.Normalized()
+	if err != nil {
+		return fortune.Input{}, err
 	}
+	if err := validateBirthYear(birth, 1900, 2100); err != nil {
+		return fortune.Input{}, err
+	}
+	lang := r.Lang
+	if lang == "" {
+		lang = "zh-CN"
+	}
+	return fortune.Input{Birth: &birth, Year: birth.Year, Month: birth.Month, Day: birth.Day,
+		Gender: fortune.Gender(r.Gender), Lang: lang, InterpretDepth: r.InterpretDepth}, nil
 }
 
 // Compute returns the Ziwei chart.
@@ -60,20 +80,35 @@ func (h *ZiweiHandler) Compute(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	res, err := h.computeChart(req)
+	res, err := h.computeChart(req, true)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		writeBirthComputeError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, res)
 }
 
-func (h *ZiweiHandler) computeChart(req ziweiComputeReq) (*fortune.Result, error) {
+func (h *ZiweiHandler) computeChart(req ziweiComputeReq, allowUncertainty bool) (*fortune.Result, error) {
 	eng, ok := fortune.Fortune(fortune.KindZiwei)
 	if !ok {
 		return nil, fmt.Errorf("ziwei engine unavailable")
 	}
-	return eng.Compute(req.toFortuneInput())
+	var input fortune.Input
+	var err error
+	if allowUncertainty {
+		input, err = req.toUncertaintyInput()
+	} else {
+		input, err = req.toFortuneInput()
+	}
+	if err != nil {
+		return nil, err
+	}
+	if allowUncertainty {
+		return fortune.ComputeWithBirthUncertainty(eng, input)
+	}
+	result, err := eng.Compute(input)
+	fortune.AttachBirthMetadata(result, input)
+	return result, err
 }
 
 // Interpret computes the chart then asks AI for a reading.
@@ -83,9 +118,9 @@ func (h *ZiweiHandler) Interpret(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	res, err := h.computeChart(req)
+	res, err := h.computeChart(req, false)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		writeBirthComputeError(c, err)
 		return
 	}
 
@@ -94,7 +129,12 @@ func (h *ZiweiHandler) Interpret(c *gin.Context) {
 		return
 	}
 
-	spec, err := prompt.ZiweiBuild(req.toFortuneInput(), res)
+	input, err := req.toFortuneInput()
+	if err != nil {
+		writeBirthComputeError(c, err)
+		return
+	}
+	spec, err := prompt.ZiweiBuild(input, res)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

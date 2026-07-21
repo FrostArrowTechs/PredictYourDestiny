@@ -121,6 +121,19 @@ export const api = {
 }
 
 // ── typed endpoints ───────────────────────────────────────────────
+export interface ResultMetadata {
+  algorithmVersion: string
+  ruleSetVersion: string
+  inputPrecision: 'minute' | 'hour' | 'period' | 'shichen' | 'unknown'
+  assumptions: string[]
+  warnings: string[]
+  unsupportedRules: string[]
+  stableFacts: Array<{ key: string; value: unknown }>
+  variableFacts: Array<{ key: string; value: unknown }>
+  variants: Array<{ fingerprint: string; label?: string; data?: unknown }>
+  evidence: Array<{ source: string; description: string }>
+}
+
 export interface HealthResponse {
   status: string
   version: string
@@ -210,6 +223,15 @@ export interface YongYin {
   reason: string
 }
 
+export interface BaziInterpretation {
+  ruleSetVersion: string
+  nature: 'interpretive_heuristic'
+  inputFacts: Array<{ key: string; value: unknown }>
+  warnings: string[]
+  wangShuai: WangShuai
+  yongYin: YongYin
+}
+
 export interface BaziChart {
   solar: string
   lunar: string
@@ -217,6 +239,17 @@ export interface BaziChart {
   longitude: number
   trueSolar: boolean
   correction: string
+  timeZone: string
+  solarTimeMode: 'legal_time' | 'local_apparent_solar'
+  longitudeCorrectionMinutes: number
+  equationOfTimeMinutes: number
+  totalCorrectionMinutes: number
+  ruleSetVersion: string
+  dayBoundary: 'midnight' | 'zi_chu_23:00'
+  calendarLibraryVersion: string
+  previousJie: { name: string; time: string }
+  nextJie: { name: string; time: string }
+  yunMethod: string
   pillars: Pillar[]
   taiYuan: string
   taiYuanNaYin: string
@@ -235,8 +268,7 @@ export interface BaziChart {
   startSolar: string
   daYun: DaYun[]
   wuXingStats: WuXingStat[]
-  wangShuai: WangShuai
-  yongYin: YongYin
+  interpretation: BaziInterpretation
 }
 
 export interface BaziResult {
@@ -253,6 +285,8 @@ export interface BaziInput {
   minute: number
   gender: 0 | 1 // 0 女, 1 男
   longitude?: number
+  timeZone?: string
+  ruleSet?: 'bazi-standard-v1' | 'bazi-zi-chu-v1'
   lang?: string
   interpretDepth?: 'brief' | 'deep'
   model?: string
@@ -837,6 +871,7 @@ export interface AspectInfo {
 }
 
 export interface AstrologyChart {
+  accuracyLabel: string
   sunSign: string
   moonSign: string
   ascendant: string
@@ -847,18 +882,19 @@ export interface AstrologyChart {
 }
 
 export interface AstrologyResult {
-  // The backend returns the chart directly (not wrapped in {kind, data, meta}).
-  // See backend/internal/handler/astrology.go: c.JSON(..., res.Data).
+  // Current responses use the common {kind,data,meta,resultMetadata} envelope;
+  // optional flat fields keep older cached responses readable.
   kind?: 'astrology'
   data?: AstrologyChart
   meta?: Record<string, string>
-  // Flat fields — the actual payload shape from the server.
-  sunSign: string
-  moonSign: string
-  ascendant: string
-  planets: PlanetInfo[]
-  houses: HouseInfo[]
-  aspects: AspectInfo[]
+  resultMetadata?: ResultMetadata
+  accuracyLabel?: string
+  sunSign?: string
+  moonSign?: string
+  ascendant?: string
+  planets?: PlanetInfo[]
+  houses?: HouseInfo[]
+  aspects?: AspectInfo[]
   chartSummary?: string
 }
 
@@ -866,14 +902,23 @@ export interface AstrologyResult {
 // the page actually consumes. Tolerates the historical {data: ...} wrapper
 // in case it's ever reintroduced.
 export function asAstrologyChart(r: AstrologyResult): AstrologyChart {
-  if (r.data) return r.data
+  if (r.data) {
+    return {
+      ...r.data,
+      accuracyLabel: r.data.accuracyLabel ?? '娱乐性简化版',
+      planets: r.data.planets ?? [],
+      houses: r.data.houses ?? [],
+      aspects: r.data.aspects ?? [],
+    }
+  }
   return {
-    sunSign: r.sunSign,
-    moonSign: r.moonSign,
-    ascendant: r.ascendant,
-    planets: r.planets,
-    houses: r.houses,
-    aspects: r.aspects,
+    accuracyLabel: r.accuracyLabel ?? '娱乐性简化版',
+    sunSign: r.sunSign ?? '',
+    moonSign: r.moonSign ?? '',
+    ascendant: r.ascendant ?? '',
+    planets: r.planets ?? [],
+    houses: r.houses ?? [],
+    aspects: r.aspects ?? [],
     chartSummary: r.chartSummary ?? '',
   }
 }

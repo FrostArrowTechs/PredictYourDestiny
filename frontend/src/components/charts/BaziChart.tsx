@@ -157,6 +157,12 @@ export default function BaziChart({ chart }: { chart: BaziChart }) {
             </span>
           )}
         </div>
+        <div className="mt-2 text-xs text-muted">
+          规则：{chart.ruleSetVersion} · 日界：{chart.dayBoundary === 'midnight' ? '00:00 换日' : '23:00 子初换日'} · 起运：{chart.yunMethod} · 历法：{chart.calendarLibraryVersion}
+        </div>
+        <div className="mt-1 text-xs text-muted">
+          前一节令：{chart.previousJie.name} {chart.previousJie.time} · 后一节令：{chart.nextJie.name} {chart.nextJie.time}
+        </div>
       </div>
 
       {/* four pillars */}
@@ -211,18 +217,18 @@ export default function BaziChart({ chart }: { chart: BaziChart }) {
         <div className="space-y-3">
           <div className="rounded-xl border border-border bg-surface p-4">
             <h3 className="mb-2 text-sm font-semibold text-fg">{t('bazi.chart.wangShuai')}</h3>
-            <p className="text-sm text-fg">{chart.wangShuai.summary}</p>
+            <p className="text-sm text-fg">{chart.interpretation.wangShuai.summary}</p>
             <div className="mt-2 flex gap-4 text-xs">
               <span className="text-muted">
                 {t('bazi.chart.strong')}：
-                <span className={WUXING_COLOR[chart.wangShuai.strong] ?? 'text-fg'}>
-                  {chart.wangShuai.strong}
+                <span className={WUXING_COLOR[chart.interpretation.wangShuai.strong] ?? 'text-fg'}>
+                  {chart.interpretation.wangShuai.strong}
                 </span>
               </span>
               <span className="text-muted">
                 {t('bazi.chart.weak')}：
-                <span className={WUXING_COLOR[chart.wangShuai.weak] ?? 'text-fg'}>
-                  {chart.wangShuai.weak}
+                <span className={WUXING_COLOR[chart.interpretation.wangShuai.weak] ?? 'text-fg'}>
+                  {chart.interpretation.wangShuai.weak}
                 </span>
               </span>
             </div>
@@ -230,23 +236,26 @@ export default function BaziChart({ chart }: { chart: BaziChart }) {
           <div className="rounded-xl border border-border bg-surface p-4">
             <h3 className="mb-2 text-sm font-semibold text-fg">
               {t('bazi.chart.yongYin')}
-              <span className="ml-2 text-xs text-muted">({chart.yongYin.confidence})</span>
+              <span className="ml-2 text-xs text-muted">({chart.interpretation.yongYin.confidence})</span>
             </h3>
             <div className="mb-2 flex flex-wrap gap-3 text-xs">
               <span className="text-muted">
                 {t('bazi.chart.yongShen')}：
-                <span className={WUXING_COLOR[chart.yongYin.yongShen] ?? 'text-fg'}>
-                  {chart.yongYin.yongShen}
+                <span className={WUXING_COLOR[chart.interpretation.yongYin.yongShen] ?? 'text-fg'}>
+                  {chart.interpretation.yongYin.yongShen}
                 </span>
               </span>
               <span className="text-muted">
-                {t('bazi.chart.xi')}：{chart.yongYin.xi.join(' / ')}
+                {t('bazi.chart.xi')}：{chart.interpretation.yongYin.xi.join(' / ')}
               </span>
               <span className="text-muted">
-                {t('bazi.chart.ji')}：{chart.yongYin.ji.join(' / ')}
+                {t('bazi.chart.ji')}：{chart.interpretation.yongYin.ji.join(' / ')}
               </span>
             </div>
-            <p className="text-xs text-muted">{chart.yongYin.reason}</p>
+            <p className="text-xs text-muted">{chart.interpretation.yongYin.reason}</p>
+            {chart.interpretation.warnings.map((warning) => (
+              <p key={warning} className="mt-2 text-xs text-amber-600 dark:text-amber-400">{warning}</p>
+            ))}
           </div>
         </div>
       </section>

@@ -154,8 +154,12 @@ export default function AstrologyPage() {
       {/* Chart Result */}
       {chart && (
         <div className="space-y-6">
+          <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-fg">
+            <div className="font-semibold">{chart.accuracyLabel}</div>
+            <div className="mt-1 text-muted">{t('astrology.simplifiedWarning')}</div>
+          </div>
           {/* Core Triad */}
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="rounded-lg border border-border bg-surface p-4 text-center">
               <div className="text-3xl">{zodiacSymbols[chart.sunSign] || '☉'}</div>
               <div className="mt-2 text-lg font-semibold text-fg">{t('astrology.chart.sunSign')}</div>
@@ -165,11 +169,6 @@ export default function AstrologyPage() {
               <div className="text-3xl">{zodiacSymbols[chart.moonSign] || '☽'}</div>
               <div className="mt-2 text-lg font-semibold text-fg">{t('astrology.chart.moonSign')}</div>
               <div className="text-xl text-primary">{chart.moonSign}</div>
-            </div>
-            <div className="rounded-lg border border-border bg-surface p-4 text-center">
-              <div className="text-3xl">{zodiacSymbols[chart.ascendant] || '↑'}</div>
-              <div className="mt-2 text-lg font-semibold text-fg">{t('astrology.chart.ascendant')}</div>
-              <div className="text-xl text-primary">{chart.ascendant}</div>
             </div>
           </div>
 
@@ -182,14 +181,10 @@ export default function AstrologyPage() {
                   key={i}
                   className="flex items-center justify-between rounded-md bg-bg/50 px-3 py-2"
                 >
-                  <div>
-                    <span className="font-medium text-fg">{p.name}</span>
-                    {p.retrograde && <span className="ml-1 text-xs text-muted">逆行</span>}
-                  </div>
+                  <div><span className="font-medium text-fg">{p.name}</span></div>
                   <div className="text-sm">
                     <span className="text-primary">{p.sign}</span>
                     <span className="ml-1 text-muted">{p.degree.toFixed(1)}°</span>
-                    <span className="ml-1 text-xs text-muted">第{p.house}宫</span>
                   </div>
                 </div>
               ))}
@@ -197,7 +192,7 @@ export default function AstrologyPage() {
           </div>
 
           {/* Houses */}
-          <div className="rounded-lg border border-border bg-surface p-6">
+          {chart.houses.length > 0 && <div className="rounded-lg border border-border bg-surface p-6">
             <h3 className="mb-4 text-lg font-semibold text-fg">{t('astrology.chart.houses')}</h3>
             <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
               {chart.houses.map((h, i) => (
@@ -210,7 +205,7 @@ export default function AstrologyPage() {
                 </div>
               ))}
             </div>
-          </div>
+          </div>}
 
           {/* Aspects */}
           {chart.aspects.length > 0 && (

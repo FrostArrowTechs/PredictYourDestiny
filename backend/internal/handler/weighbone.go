@@ -20,28 +20,48 @@ type WeighboneHandler struct {
 }
 
 type weighboneComputeReq struct {
-	Year           int    `json:"year" binding:"required,min=1900,max=2100"`
-	Month          int    `json:"month" binding:"required,min=1,max=12"`
-	Day            int    `json:"day" binding:"required,min=1,max=31"`
-	Hour           int    `json:"hour"`
-	Minute         int    `json:"minute"`
+	fortune.BirthContext
 	Lang           string `json:"lang"`
 	InterpretDepth string `json:"interpretDepth"`
 	Model          string `json:"model"`
 	Stream         bool   `json:"stream"`
 }
 
-func (r weighboneComputeReq) toFortuneInput() fortune.Input {
+func (r weighboneComputeReq) toFortuneInput() (fortune.Input, error) {
+	birth, hour, minute, err := r.BirthContext.RequiredClock()
+	if err != nil {
+		return fortune.Input{}, err
+	}
+	if err := validateBirthYear(birth, 1900, 2100); err != nil {
+		return fortune.Input{}, err
+	}
 	lang := r.Lang
 	if lang == "" {
 		lang = "zh-CN"
 	}
 	return fortune.Input{
-		Year: r.Year, Month: r.Month, Day: r.Day,
-		Hour: r.Hour, Minute: r.Minute,
+		Birth: &birth,
+		Year:  birth.Year, Month: birth.Month, Day: birth.Day,
+		Hour: hour, Minute: minute,
 		Lang:           lang,
 		InterpretDepth: r.InterpretDepth,
+	}, nil
+}
+
+func (r weighboneComputeReq) toUncertaintyInput() (fortune.Input, error) {
+	birth, err := r.BirthContext.Normalized()
+	if err != nil {
+		return fortune.Input{}, err
 	}
+	if err := validateBirthYear(birth, 1900, 2100); err != nil {
+		return fortune.Input{}, err
+	}
+	lang := r.Lang
+	if lang == "" {
+		lang = "zh-CN"
+	}
+	return fortune.Input{Birth: &birth, Year: birth.Year, Month: birth.Month, Day: birth.Day,
+		Lang: lang, InterpretDepth: r.InterpretDepth}, nil
 }
 
 func (h *WeighboneHandler) Compute(c *gin.Context) {
@@ -55,9 +75,14 @@ func (h *WeighboneHandler) Compute(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "weighbone engine unavailable"})
 		return
 	}
-	res, err := eng.Compute(req.toFortuneInput())
+	input, err := req.toUncertaintyInput()
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		writeBirthComputeError(c, err)
+		return
+	}
+	res, err := fortune.ComputeWithBirthUncertainty(eng, input)
+	if err != nil {
+		writeBirthComputeError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, res)
@@ -74,18 +99,24 @@ func (h *WeighboneHandler) Interpret(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "weighbone engine unavailable"})
 		return
 	}
-	res, err := eng.Compute(req.toFortuneInput())
+	input, err := req.toFortuneInput()
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		writeBirthComputeError(c, err)
 		return
 	}
+	res, err := eng.Compute(input)
+	if err != nil {
+		writeBirthComputeError(c, err)
+		return
+	}
+	fortune.AttachBirthMetadata(res, input)
 
 	if h.Gateway == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "AI gateway not configured"})
 		return
 	}
 
-	spec, err := prompt.WeighboneBuild(req.toFortuneInput(), res)
+	spec, err := prompt.WeighboneBuild(input, res)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

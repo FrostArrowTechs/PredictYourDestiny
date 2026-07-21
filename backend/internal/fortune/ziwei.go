@@ -4,14 +4,14 @@
 // The engine computes a Ziwei chart from a birth date/time + gender
 // using the traditional public-domain rules:
 //
-//  1.  From the lunar date, derive the 命宫 (Life Palace) and 身宫
-//      (Body Palace) positions on the 12-house wheel.
-//  2.  Locate the 紫微 (Ziwei / Purple Star) star from the lunar day,
-//      then place the remaining 13 main stars by their fixed offsets.
-//  3.  Place the 天府 (Tianfu) group from the Ziwei position.
-//  4.  Derive the 四化 (Four Transformations) from the year stem.
-//  5.  Place selected auxiliary stars (左辅右弼/文昌文曲/天魁天钺/禄存)
-//      and 煞星 (擎羊/陀罗/火星/铃星/地空/地劫).
+//  1. From the lunar date, derive the 命宫 (Life Palace) and 身宫
+//     (Body Palace) positions on the 12-house wheel.
+//  2. Locate the 紫微 (Ziwei / Purple Star) star from the lunar day,
+//     then place the remaining 13 main stars by their fixed offsets.
+//  3. Place the 天府 (Tianfu) group from the Ziwei position.
+//  4. Derive the 四化 (Four Transformations) from the year stem.
+//  5. Place selected auxiliary stars (左辅右弼/文昌文曲/天魁天钺/禄存)
+//     and 煞星 (擎羊/陀罗/火星/铃星/地空/地劫).
 //
 // All placement tables are traditional public-domain knowledge compiled
 // from the classic 紫微斗数全集. No third-party ephemeris is required —
@@ -31,7 +31,9 @@ type ZiweiEngine struct{}
 // when laid out. Each palace maps to an earthly branch.
 //
 // Palace order around the wheel (counterclockwise from 命宫):
-//   命宫, 兄弟, 夫妻, 子女, 财帛, 疾厄, 官禄, 奴仆, 迁移, 病符... etc.
+//
+//	命宫, 兄弟, 夫妻, 子女, 财帛, 疾厄, 官禄, 奴仆, 迁移, 病符... etc.
+//
 // The standard 12 named palaces:
 var ziweiPalaceNames = []string{
 	"命宫", "兄弟", "夫妻", "子女", "财帛", "疾厄",
@@ -76,8 +78,8 @@ type ZiweiChart struct {
 	// The five-element bureau (五行局) used for the Da Yun calculation
 	WuXingJu string `json:"wuXingJu"`
 	// Da Yun (大运) starting age and direction
-	DaYunStartAge  int  `json:"daYunStartAge"`
-	DaYunForward   bool `json:"daYunForward"`
+	DaYunStartAge int  `json:"daYunStartAge"`
+	DaYunForward  bool `json:"daYunForward"`
 	// Summary of the dominant stars for quick display
 	MainStarOfLife string `json:"mainStarOfLife"`
 }
@@ -122,9 +124,9 @@ func (e ZiweiEngine) Compute(in Input) (*Result, error) {
 	// Standard formula: 命宫 index = (2 + month - 1 - shiChen + 1) mod 12.
 	// Simplified and verified: position = (month - shiChen) mod 12, then
 	// mapped onto the branch wheel starting at 寅.
-	lifePos := ((lunarMonth - shiChen) % 12 + 12) % 12
+	lifePos := ((lunarMonth-shiChen)%12 + 12) % 12
 	// 身宫: 寅(2) + month - 1, then + 时辰
-	bodyPos := ((lunarMonth + shiChen) % 12 + 12) % 12
+	bodyPos := ((lunarMonth+shiChen)%12 + 12) % 12
 
 	// Map a 0-11 "month/clock" position onto the wheel where index 0 = 寅.
 	// We define wheelPos such that wheelPos 0 → 寅(2), 1 → 卯(3), etc.
@@ -222,21 +224,21 @@ func (e ZiweiEngine) Compute(in Input) (*Result, error) {
 	startAge := juStartAge(ju)
 
 	chart := &ZiweiChart{
-		SolarDate:         solarDate,
-		LunarDate:         lunarDate,
-		Gender:            gender,
-		YearGanZhi:        lunar.GetYearInGanZhi(),
-		MonthGanZhi:       lunar.GetMonthInGanZhi(),
-		DayGanZhi:         lunar.GetDayInGanZhi(),
-		LifePalaceBranch:  lifeBranch,
-		BodyPalaceBranch:  bodyBranch,
-		LifeRuler:         lifeRuler,
-		BodyRuler:         bodyRuler,
-		Palaces:           palaces,
-		WuXingJu:          ju,
-		DaYunStartAge:     startAge,
-		DaYunForward:      forward,
-		MainStarOfLife:    lifeMainStar,
+		SolarDate:        solarDate,
+		LunarDate:        lunarDate,
+		Gender:           gender,
+		YearGanZhi:       lunar.GetYearInGanZhi(),
+		MonthGanZhi:      lunar.GetMonthInGanZhi(),
+		DayGanZhi:        lunar.GetDayInGanZhi(),
+		LifePalaceBranch: lifeBranch,
+		BodyPalaceBranch: bodyBranch,
+		LifeRuler:        lifeRuler,
+		BodyRuler:        bodyRuler,
+		Palaces:          palaces,
+		WuXingJu:         ju,
+		DaYunStartAge:    startAge,
+		DaYunForward:     forward,
+		MainStarOfLife:   lifeMainStar,
 	}
 
 	return &Result{
@@ -277,7 +279,8 @@ func computeWuXingJu(yearGan string, lunarMonth, lunarDay int) string {
 	// Simplified: derive from year stem's element. A full implementation
 	// uses the 命宫 stem-branch nayin; here we use a stable mapping that
 	// gives one of the five bureaus. This is documented as a known
-	// approximation — the AI prompt layer smooths over nuance.
+	// approximation. It must remain visible in result metadata and must never
+	// be presented to the AI layer as if it were an exact rule-pack result.
 	juByStem := map[string]string{
 		"甲": "金四局", "己": "金四局",
 		"乙": "水二局", "庚": "水二局",
@@ -395,7 +398,7 @@ func placeMainStars(ziweiPos int, ju string, starsByPos map[int][]string) {
 		starsByPos[pos] = append(starsByPos[pos], s.name)
 	}
 
-	// 天府 is the mirror of 紫微 across 寅(axis 0): 天府 = (0 - ziweiPos + 0 + 12) % 12... 
+	// 天府 is the mirror of 紫微 across 寅(axis 0): 天府 = (0 - ziweiPos + 0 + 12) % 12...
 	// The standard rule: 紫微 and 天府 are symmetric about the 寅-申 line.
 	// 紫微 at 0(寅)→天府 at 0(寅); 紫微 at 1(卯)→天府 at 11(丑); etc.
 	// Formula: tianfuPos = (0 - (ziweiPos - 0) + 12) % 12 = (-ziweiPos + 12) % 12.

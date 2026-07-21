@@ -13,40 +13,40 @@ import (
 // the 立春 / 节气 sect handling.
 func TestBaziKnownChart(t *testing.T) {
 	cases := []struct {
-		name    string
-		in      Input
-		year    string
-		month   string
-		day     string
-		hour    string
-		dayGan  string
-		dayZhi  string
+		name      string
+		in        Input
+		year      string
+		month     string
+		day       string
+		hour      string
+		dayGan    string
+		dayZhi    string
 		yearNaYin string
-		forward bool
+		forward   bool
 	}{
 		{
-			name:    "2000-01-01 12:00 male (Beijing, no longitude)",
-			in:      Input{Year: 2000, Month: 1, Day: 1, Hour: 12, Minute: 0, Gender: GenderMale, Lang: "zh-CN"},
-			year:    "己卯",
-			month:   "丙子",
-			day:     "戊午",
-			hour:    "戊午",
-			dayGan:  "戊",
-			dayZhi:  "午",
+			name:      "2000-01-01 12:00 male (Beijing, no longitude)",
+			in:        Input{Year: 2000, Month: 1, Day: 1, Hour: 12, Minute: 0, Gender: GenderMale, Lang: "zh-CN"},
+			year:      "己卯",
+			month:     "丙子",
+			day:       "戊午",
+			hour:      "戊午",
+			dayGan:    "戊",
+			dayZhi:    "午",
 			yearNaYin: "城头土",
-			forward: false, // 己 is yin → 阴年男命逆排
+			forward:   false, // 己 is yin → 阴年男命逆排
 		},
 		{
-			name:    "1985-04-26 06:00 male",
-			in:      Input{Year: 1985, Month: 4, Day: 26, Hour: 6, Minute: 0, Gender: GenderMale, Lang: "zh-CN"},
-			year:    "乙丑",
-			month:   "庚辰",
-			day:     "乙未",
-			hour:    "己卯",
-			dayGan:  "乙",
-			dayZhi:  "未",
+			name:      "1985-04-26 06:00 male",
+			in:        Input{Year: 1985, Month: 4, Day: 26, Hour: 6, Minute: 0, Gender: GenderMale, Lang: "zh-CN"},
+			year:      "乙丑",
+			month:     "庚辰",
+			day:       "乙未",
+			hour:      "己卯",
+			dayGan:    "乙",
+			dayZhi:    "未",
 			yearNaYin: "海中金",
-			forward: false, // 乙 is yin → 阴年男命逆排
+			forward:   false, // 乙 is yin → 阴年男命逆排
 		},
 	}
 
@@ -208,7 +208,9 @@ func TestBaziDaYunSequence(t *testing.T) {
 // 2000-01-01 12:00 chart (己卯 丙子 戊午 戊午), the four 干 are
 // 己(土) 丙(火) 戊(土) 戊(土) and the four 支 are 卯(木) 子(水) 午(火) 午(火).
 // So counting just the 8 main chars (ignoring hidden stems):
-//   土=3 火=3 木=1 水=1 金=0
+//
+//	土=3 火=3 木=1 水=1 金=0
+//
 // The engine also adds hidden-stem contributions at 0.5 weight, so
 // the totals may be slightly higher — we assert the *ordering* and
 // that 金 is weakest, not exact counts.
@@ -231,14 +233,17 @@ func TestBaziWuXingStats(t *testing.T) {
 		t.Errorf("金 should be weakest, got 金=%d 土=%d", countOf("金"), countOf("土"))
 	}
 	// 日主 戊 is 土, month 丙子 has 子=水 → 月令水, 日主土被耗 → 偏弱 likely
-	if c.WangShuai.DayWang == "" {
+	if c.Interpretation.WangShuai.DayWang == "" {
 		t.Error("DayWang empty")
 	}
-	if c.YongYin.YongShen == "" {
+	if c.Interpretation.YongYin.YongShen == "" {
 		t.Error("用神 empty")
 	}
-	if c.YongYin.Confidence != "初判" {
-		t.Errorf("confidence = %q, want 初判", c.YongYin.Confidence)
+	if c.Interpretation.YongYin.Confidence != "初判" {
+		t.Errorf("confidence = %q, want 初判", c.Interpretation.YongYin.Confidence)
+	}
+	if c.Interpretation.Nature != "interpretive_heuristic" || len(c.Interpretation.InputFacts) == 0 || len(c.Interpretation.Warnings) == 0 {
+		t.Errorf("interpretation provenance incomplete: %+v", c.Interpretation)
 	}
 }
 

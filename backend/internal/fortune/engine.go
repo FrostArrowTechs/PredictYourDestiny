@@ -24,19 +24,19 @@ package fortune
 // Kind enumerates the engine identifiers. These double as the
 // FortuneRecord.Kind column and the route segment under /api/<kind>.
 const (
-	KindBazi           = "bazi"
-	KindZodiac         = "zodiac"
-	KindHuangli        = "huangli"
-	KindDream          = "dream"
-	KindCompatibility  = "compatibility"
-	KindWeighbone      = "weighbone"
-	KindDivination     = "divination"
-	KindPlumFlower     = "plumflower"
-	KindConstellation  = "constellation"
-	KindTarot          = "tarot"
-	KindName           = "name"
-	KindAstrology      = "astrology"
-	KindZiwei          = "ziwei"
+	KindBazi          = "bazi"
+	KindZodiac        = "zodiac"
+	KindHuangli       = "huangli"
+	KindDream         = "dream"
+	KindCompatibility = "compatibility"
+	KindWeighbone     = "weighbone"
+	KindDivination    = "divination"
+	KindPlumFlower    = "plumflower"
+	KindConstellation = "constellation"
+	KindTarot         = "tarot"
+	KindName          = "name"
+	KindAstrology     = "astrology"
+	KindZiwei         = "ziwei"
 )
 
 // Gender mirrors the convention used by lunar-go: 1 = male, 0 = female.
@@ -60,12 +60,13 @@ func (g Gender) String() string {
 // struct avoids a per-engine request envelope while still letting the
 // handler validate once.
 type Input struct {
+	Birth *BirthContext `json:"birthContext,omitempty"`
 	// Birth date / time of the subject (solar / Gregorian).
-	Year   int    `json:"year"`
-	Month  int    `json:"month"`
-	Day    int    `json:"day"`
-	Hour   int    `json:"hour"`   // 0-23
-	Minute int    `json:"minute"` // 0-59
+	Year   int `json:"year"`
+	Month  int `json:"month"`
+	Day    int `json:"day"`
+	Hour   int `json:"hour"`   // 0-23
+	Minute int `json:"minute"` // 0-59
 
 	// Gender of the subject (used by bazi da-yun direction).
 	Gender Gender `json:"gender"`
@@ -103,9 +104,10 @@ type Input struct {
 // produced the chart, the true-solar-time offset applied, etc. It is
 // flat string→string so it serializes cleanly and is easy to display.
 type Result struct {
-	Kind string            `json:"kind"`
-	Data any               `json:"data"`
-	Meta map[string]string `json:"meta,omitempty"`
+	Kind           string            `json:"kind"`
+	Data           any               `json:"data"`
+	Meta           map[string]string `json:"meta,omitempty"`
+	ResultMetadata *ResultMetadata   `json:"resultMetadata,omitempty"`
 }
 
 // PromptSpec is the payload an engine emits to ask the AI gateway for

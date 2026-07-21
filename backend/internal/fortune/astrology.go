@@ -12,11 +12,11 @@ type AstrologyEngine struct{}
 
 // AstrologyInput is the request for natal chart calculation.
 type AstrologyInput struct {
-	Year     int     `json:"year"`
-	Month    int     `json:"month"`
-	Day      int     `json:"day"`
-	Hour     int     `json:"hour"`
-	Minute   int     `json:"minute"`
+	Year      int     `json:"year"`
+	Month     int     `json:"month"`
+	Day       int     `json:"day"`
+	Hour      int     `json:"hour"`
+	Minute    int     `json:"minute"`
 	Longitude float64 `json:"longitude"` // Birth place longitude
 	Latitude  float64 `json:"latitude"`  // Birth place latitude
 	Timezone  float64 `json:"timezone"`  // Timezone offset (e.g., 8 for UTC+8)
@@ -25,38 +25,39 @@ type AstrologyInput struct {
 
 // AstrologyResult contains the natal chart data.
 type AstrologyResult struct {
-	SunSign      string         `json:"sunSign"`      // Sun sign
-	MoonSign     string         `json:"moonSign"`     // Moon sign
-	Ascendant    string         `json:"ascendant"`    // Rising sign
-	Planets      []PlanetInfo   `json:"planets"`      // Planetary positions
-	Houses       []HouseInfo    `json:"houses"`       // 12 houses
-	Aspects      []AspectInfo   `json:"aspects"`      // Major aspects
-	ChartSummary string         `json:"chartSummary"` // Brief summary
+	AccuracyLabel string       `json:"accuracyLabel"`
+	SunSign       string       `json:"sunSign"`             // Sun sign
+	MoonSign      string       `json:"moonSign"`            // Moon sign
+	Ascendant     string       `json:"ascendant,omitempty"` // unavailable until a verified ephemeris implementation
+	Planets       []PlanetInfo `json:"planets"`             // Planetary positions
+	Houses        []HouseInfo  `json:"houses,omitempty"`    // unavailable in the simplified engine
+	Aspects       []AspectInfo `json:"aspects"`             // Major aspects
+	ChartSummary  string       `json:"chartSummary"`        // Brief summary
 }
 
 // PlanetInfo holds a planet's position.
 type PlanetInfo struct {
-	Name     string  `json:"name"`     // Planet name
-	Sign     string  `json:"sign"`     // Zodiac sign
-	Degree   float64 `json:"degree"`   // Degree in sign (0-30)
-	House    int     `json:"house"`    // House number (1-12)
-	Retrograde bool  `json:"retrograde"` // Is retrograde
+	Name       string  `json:"name"`                 // Planet name
+	Sign       string  `json:"sign"`                 // Zodiac sign
+	Degree     float64 `json:"degree"`               // Degree in sign (0-30)
+	House      int     `json:"house,omitempty"`      // unavailable in the simplified engine
+	Retrograde bool    `json:"retrograde,omitempty"` // unavailable in the simplified engine
 }
 
 // HouseInfo holds house cusp information.
 type HouseInfo struct {
-	Number  int     `json:"number"`  // 1-12
-	Sign    string  `json:"sign"`    // Sign on cusp
-	Degree  float64 `json:"degree"`  // Degree on cusp
+	Number int     `json:"number"` // 1-12
+	Sign   string  `json:"sign"`   // Sign on cusp
+	Degree float64 `json:"degree"` // Degree on cusp
 }
 
 // AspectInfo holds aspect information.
 type AspectInfo struct {
-	Planet1   string  `json:"planet1"`
-	Planet2   string  `json:"planet2"`
-	Aspect    string  `json:"aspect"`    // conjunction, opposition, trine, square, sextile
-	Orb       float64 `json:"orb"`       // Orb in degrees
-	Exact     bool    `json:"exact"`     // Is exact (within 1 degree)
+	Planet1 string  `json:"planet1"`
+	Planet2 string  `json:"planet2"`
+	Aspect  string  `json:"aspect"` // conjunction, opposition, trine, square, sextile
+	Orb     float64 `json:"orb"`    // Orb in degrees
+	Exact   bool    `json:"exact"`  // Is exact (within 1 degree)
 }
 
 func init() {
@@ -74,15 +75,6 @@ func (e AstrologyEngine) Compute(in Input) (*Result, error) {
 	// Calculate planetary positions
 	planets := calculatePlanets(jd)
 
-	// Calculate ascendant (simplified - use longitude only)
-	ascendant := calculateAscendant(jd, in.Longitude, 39.9) // Default latitude Beijing
-
-	// Calculate houses (Placidus system approximation)
-	houses := calculateHouses(ascendant)
-
-	// Assign planets to houses
-	assignPlanetsToHouses(planets, houses)
-
 	// Calculate aspects
 	aspects := calculateAspects(planets)
 
@@ -99,13 +91,13 @@ func (e AstrologyEngine) Compute(in Input) (*Result, error) {
 	}
 
 	result := &AstrologyResult{
-		SunSign:   sunSign,
-		MoonSign:  moonSign,
-		Ascendant: ascendant,
-		Planets:   planets,
-		Houses:    houses,
-		Aspects:   aspects,
-		ChartSummary: fmt.Sprintf("太阳%s，月亮%s，上升%s", sunSign, moonSign, ascendant),
+		AccuracyLabel: "娱乐性简化版",
+		SunSign:       sunSign,
+		MoonSign:      moonSign,
+		Planets:       planets,
+		Houses:        []HouseInfo{},
+		Aspects:       aspects,
+		ChartSummary:  fmt.Sprintf("娱乐性简化结果：太阳%s，月亮%s；当前算法不提供上升、宫位或逆行结论", sunSign, moonSign),
 	}
 
 	return &Result{Kind: KindAstrology, Data: result}, nil
@@ -182,11 +174,10 @@ func calculatePlanets(jd float64) []PlanetInfo {
 	mercLon = mercLon - math.Floor(mercLon)
 	mercDeg := mercLon * 360.0
 	planets = append(planets, PlanetInfo{
-		Name:     "水星",
-		Sign:     degreeToSign(mercDeg),
-		Degree:   math.Mod(mercDeg, 30),
-		House:    0,
-		Retrograde: isRetrograde("mercury", d),
+		Name:   "水星",
+		Sign:   degreeToSign(mercDeg),
+		Degree: math.Mod(mercDeg, 30),
+		House:  0,
 	})
 
 	// Venus
@@ -194,11 +185,10 @@ func calculatePlanets(jd float64) []PlanetInfo {
 	venusLon = venusLon - math.Floor(venusLon)
 	venusDeg := venusLon * 360.0
 	planets = append(planets, PlanetInfo{
-		Name:     "金星",
-		Sign:     degreeToSign(venusDeg),
-		Degree:   math.Mod(venusDeg, 30),
-		House:    0,
-		Retrograde: isRetrograde("venus", d),
+		Name:   "金星",
+		Sign:   degreeToSign(venusDeg),
+		Degree: math.Mod(venusDeg, 30),
+		House:  0,
 	})
 
 	// Mars
@@ -206,11 +196,10 @@ func calculatePlanets(jd float64) []PlanetInfo {
 	marsLon = marsLon - math.Floor(marsLon)
 	marsDeg := marsLon * 360.0
 	planets = append(planets, PlanetInfo{
-		Name:     "火星",
-		Sign:     degreeToSign(marsDeg),
-		Degree:   math.Mod(marsDeg, 30),
-		House:    0,
-		Retrograde: isRetrograde("mars", d),
+		Name:   "火星",
+		Sign:   degreeToSign(marsDeg),
+		Degree: math.Mod(marsDeg, 30),
+		House:  0,
 	})
 
 	// Jupiter
@@ -218,11 +207,9 @@ func calculatePlanets(jd float64) []PlanetInfo {
 	jupLon = jupLon - math.Floor(jupLon)
 	jupDeg := jupLon * 360.0
 	planets = append(planets, PlanetInfo{
-		Name:     "木星",
-		Sign:     degreeToSign(jupDeg),
-		Degree:   math.Mod(jupDeg, 30),
-		House:    0,
-		Retrograde: isRetrograde("jupiter", d),
+		Name:   "木星",
+		Sign:   degreeToSign(jupDeg),
+		Degree: math.Mod(jupDeg, 30),
 	})
 
 	// Saturn
@@ -230,11 +217,9 @@ func calculatePlanets(jd float64) []PlanetInfo {
 	satLon = satLon - math.Floor(satLon)
 	satDeg := satLon * 360.0
 	planets = append(planets, PlanetInfo{
-		Name:     "土星",
-		Sign:     degreeToSign(satDeg),
-		Degree:   math.Mod(satDeg, 30),
-		House:    0,
-		Retrograde: isRetrograde("saturn", d),
+		Name:   "土星",
+		Sign:   degreeToSign(satDeg),
+		Degree: math.Mod(satDeg, 30),
 	})
 
 	// Uranus
@@ -242,11 +227,9 @@ func calculatePlanets(jd float64) []PlanetInfo {
 	uraLon = uraLon - math.Floor(uraLon)
 	uraDeg := uraLon * 360.0
 	planets = append(planets, PlanetInfo{
-		Name:     "天王星",
-		Sign:     degreeToSign(uraDeg),
-		Degree:   math.Mod(uraDeg, 30),
-		House:    0,
-		Retrograde: isRetrograde("uranus", d),
+		Name:   "天王星",
+		Sign:   degreeToSign(uraDeg),
+		Degree: math.Mod(uraDeg, 30),
 	})
 
 	// Neptune
@@ -254,11 +237,9 @@ func calculatePlanets(jd float64) []PlanetInfo {
 	nepLon = nepLon - math.Floor(nepLon)
 	nepDeg := nepLon * 360.0
 	planets = append(planets, PlanetInfo{
-		Name:     "海王星",
-		Sign:     degreeToSign(nepDeg),
-		Degree:   math.Mod(nepDeg, 30),
-		House:    0,
-		Retrograde: isRetrograde("neptune", d),
+		Name:   "海王星",
+		Sign:   degreeToSign(nepDeg),
+		Degree: math.Mod(nepDeg, 30),
 	})
 
 	// Pluto
@@ -266,11 +247,9 @@ func calculatePlanets(jd float64) []PlanetInfo {
 	pluLon = pluLon - math.Floor(pluLon)
 	pluDeg := pluLon * 360.0
 	planets = append(planets, PlanetInfo{
-		Name:     "冥王星",
-		Sign:     degreeToSign(pluDeg),
-		Degree:   math.Mod(pluDeg, 30),
-		House:    0,
-		Retrograde: isRetrograde("pluto", d),
+		Name:   "冥王星",
+		Sign:   degreeToSign(pluDeg),
+		Degree: math.Mod(pluDeg, 30),
 	})
 
 	return planets
@@ -286,103 +265,17 @@ func degreeToSign(deg float64) string {
 	return zodiacSigns[signIndex]
 }
 
-// calculateAscendant returns the rising sign (simplified).
-func calculateAscendant(jd float64, lon, lat float64) string {
-	// Simplified: use sun's position + 6 hours offset for approximate ascendant
-	d := jd - 2451545.0
-	sunLon := (280.460 + 0.9856474*d) / 360.0
-	sunLon = sunLon - math.Floor(sunLon)
-	sunDeg := sunLon * 360.0
-
-	// Approximate ascendant: sun position - 90 + latitude adjustment
-	ascDeg := sunDeg - 90 + lat*0.5
-	ascDeg = math.Mod(ascDeg, 360)
-	if ascDeg < 0 {
-		ascDeg += 360
-	}
-
-	return degreeToSign(ascDeg)
-}
-
-// calculateHouses returns 12 house cusps (Placidus approximation).
-func calculateHouses(ascendant string) []HouseInfo {
-	// Find ascendant degree
-	ascIndex := 0
-	for i, s := range zodiacSigns {
-		if s == ascendant {
-			ascIndex = i
-			break
-		}
-	}
-
-	houses := make([]HouseInfo, 12)
-	for i := 0; i < 12; i++ {
-		signIdx := (ascIndex + i) % 12
-		houses[i] = HouseInfo{
-			Number: i + 1,
-			Sign:   zodiacSigns[signIdx],
-			Degree: 0, // Simplified: cusp at 0 degrees
-		}
-	}
-	return houses
-}
-
-// assignPlanetsToHouses assigns each planet to its house.
-func assignPlanetsToHouses(planets []PlanetInfo, houses []HouseInfo) {
-	// Create a map of sign to house number
-	signToHouse := make(map[string]int)
-	for _, h := range houses {
-		signToHouse[h.Sign] = h.Number
-	}
-
-	// Assign planets to houses based on their sign
-	for i := range planets {
-		planets[i].House = signToHouse[planets[i].Sign]
-	}
-}
-
-// isRetrograde determines if a planet is retrograde (simplified).
-func isRetrograde(planet string, d float64) bool {
-	// Simplified retrograde periods
-	// Mercury: about 20% of the time
-	// Venus: about 7% of the time
-	// Mars: about 9% of the time
-	// Jupiter through Pluto: about 30-40% of the time
-
-	// Use a simple periodic function for demonstration
-	switch planet {
-	case "mercury":
-		return math.Sin(d/115.0) > 0.3
-	case "venus":
-		return math.Sin(d/584.0) > 0.85
-	case "mars":
-		return math.Sin(d/780.0) > 0.8
-	case "jupiter":
-		return math.Sin(d/399.0) > 0.3
-	case "saturn":
-		return math.Sin(d/378.0) > 0.3
-	case "uranus":
-		return math.Sin(d/370.0) > 0.3
-	case "neptune":
-		return math.Sin(d/367.0) > 0.3
-	case "pluto":
-		return math.Sin(d/366.0) > 0.3
-	default:
-		return false
-	}
-}
-
 // calculateAspects calculates major aspects between planets.
 func calculateAspects(planets []PlanetInfo) []AspectInfo {
 	aspects := make([]AspectInfo, 0)
 
 	// Define aspect angles
 	aspectAngles := map[string]float64{
-		"合相":   0,
-		"六分相":  60,
-		"四分相":  90,
-		"三分相":  120,
-		"对分相":  180,
+		"合相":  0,
+		"六分相": 60,
+		"四分相": 90,
+		"三分相": 120,
+		"对分相": 180,
 	}
 
 	// Orb tolerance

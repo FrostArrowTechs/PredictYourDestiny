@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -40,11 +41,7 @@ func (h *NameHandler) Compute(c *gin.Context) {
 		return
 	}
 
-	eng, ok := fortune.Fortune(fortune.KindName)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "name engine unavailable"})
-		return
-	}
+	eng := fortune.NameEngine{DB: h.DB}
 
 	// Build Input from request (use Question field for full name)
 	input := fortune.Input{
@@ -55,7 +52,7 @@ func (h *NameHandler) Compute(c *gin.Context) {
 
 	res, err := eng.Compute(input)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		writeNameComputeError(c, err)
 		return
 	}
 
@@ -70,11 +67,7 @@ func (h *NameHandler) Interpret(c *gin.Context) {
 		return
 	}
 
-	eng, ok := fortune.Fortune(fortune.KindName)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "name engine unavailable"})
-		return
-	}
+	eng := fortune.NameEngine{DB: h.DB}
 
 	// Build Input from request
 	input := fortune.Input{
@@ -85,7 +78,7 @@ func (h *NameHandler) Interpret(c *gin.Context) {
 
 	res, err := eng.Compute(input)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		writeNameComputeError(c, err)
 		return
 	}
 
@@ -117,6 +110,21 @@ func (h *NameHandler) Interpret(c *gin.Context) {
 		return
 	}
 	h.interpretSync(c, model, msgs, opts)
+}
+
+func writeNameComputeError(c *gin.Context, err error) {
+	var unknown *fortune.UnknownCharactersError
+	switch {
+	case errors.As(err, &unknown):
+		c.JSON(http.StatusUnprocessableEntity, gin.H{
+			"error":             "name contains characters missing from the configured stroke dictionary",
+			"unknownCharacters": unknown.Characters,
+		})
+	case errors.Is(err, fortune.ErrStrokeDictionaryUnavailable):
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	}
 }
 
 // resolveModel picks the model to use.

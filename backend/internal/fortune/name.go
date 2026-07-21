@@ -1,10 +1,29 @@
 package fortune
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 
 	"gorm.io/gorm"
 )
+
+var (
+	ErrStrokeDictionaryUnavailable = errors.New("name: stroke dictionary unavailable")
+	ErrUnknownCharacters           = errors.New("name: characters missing from stroke dictionary")
+)
+
+// UnknownCharactersError identifies every character that must be added to the
+// declared stroke dictionary before a deterministic analysis can be produced.
+type UnknownCharactersError struct {
+	Characters []string
+}
+
+func (e *UnknownCharactersError) Error() string {
+	return fmt.Sprintf("%s: %s", ErrUnknownCharacters, strings.Join(e.Characters, ", "))
+}
+
+func (e *UnknownCharactersError) Unwrap() error { return ErrUnknownCharacters }
 
 // NameEngine implements the Five格 (Five Structures) name analysis system.
 // Data sources: 康熙字典笔画（公共领域）+ 81数理吉凶（传统公共知识）
@@ -17,9 +36,9 @@ type NameInput struct {
 	// For analysis: the full name to analyze
 	FullName string `json:"fullName"`
 	// For suggestion: surname + constraints
-	Surname   string `json:"surname"`    // 姓氏
-	GivenName string `json:"givenName"`  // 名字（可选，用于分析）
-	Gender    int    `json:"gender"`     // 0=女, 1=男
+	Surname   string `json:"surname"`   // 姓氏
+	GivenName string `json:"givenName"` // 名字（可选，用于分析）
+	Gender    int    `json:"gender"`    // 0=女, 1=男
 	// Bazi preferences (optional)
 	WuXingPrefer string `json:"wuXingPrefer"` // 喜用五行
 	// Language for prompts
@@ -136,20 +155,20 @@ func (e NameEngine) Compute(in Input) (*Result, error) {
 	strokeDetails := e.buildStrokeDetails(surname, givenName, surnameInfo, givenNameInfo)
 
 	result := &NameResult{
-		FullName:     fullName,
-		TianGe:       tianGe,
-		RenGe:        renGe,
-		DiGe:         diGe,
-		WaiGe:        waiGe,
-		ZongGe:       zongGe,
-		SanCai:       sanCai,
-		TianGeLuck:   tianGeLuck,
-		RenGeLuck:    renGeLuck,
-		DiGeLuck:     diGeLuck,
-		WaiGeLuck:    waiGeLuck,
-		ZongGeLuck:   zongGeLuck,
-		Score:        score,
-		ScoreDesc:    scoreDesc,
+		FullName:      fullName,
+		TianGe:        tianGe,
+		RenGe:         renGe,
+		DiGe:          diGe,
+		WaiGe:         waiGe,
+		ZongGe:        zongGe,
+		SanCai:        sanCai,
+		TianGeLuck:    tianGeLuck,
+		RenGeLuck:     renGeLuck,
+		DiGeLuck:      diGeLuck,
+		WaiGeLuck:     waiGeLuck,
+		ZongGeLuck:    zongGeLuck,
+		Score:         score,
+		ScoreDesc:     scoreDesc,
 		StrokeDetails: strokeDetails,
 	}
 
@@ -168,8 +187,9 @@ func (e NameEngine) splitName(chars []rune) (surname, givenName []rune) {
 		"司空": true, "夏侯": true,
 	}
 
-	// Check for compound surname (first 2 chars)
-	if len(chars) >= 4 {
+	// A compound surname plus a one-character given name is a valid
+	// three-character full name, so detection must not depend on len >= 4.
+	if len(chars) >= 3 {
 		twoChar := string(chars[:2])
 		if compoundSurnames[twoChar] {
 			return chars[:2], chars[2:]
@@ -183,45 +203,31 @@ func (e NameEngine) splitName(chars []rune) (surname, givenName []rune) {
 // getStrokeCounts retrieves stroke counts for characters from DB.
 func (e NameEngine) getStrokeCounts(chars []rune) ([]int, error) {
 	if e.DB == nil {
-		// Fallback: use simplified stroke estimation (not accurate for traditional name analysis)
-		return e.estimateStrokes(chars), nil
+		return nil, ErrStrokeDictionaryUnavailable
 	}
 
 	strokes := make([]int, len(chars))
+	unknown := make([]string, 0)
 	for i, char := range chars {
-		var stroke int
+		var row struct {
+			Strokes int
+		}
 		err := e.DB.Table("character_strokes").
 			Where("char = ?", string(char)).
-			Pluck("strokes", &stroke).Error
-		if err != nil || stroke == 0 {
-			// Fallback: estimate from rune
-			stroke = e.estimateSingleStroke(char)
+			Select("strokes").Take(&row).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) || (err == nil && row.Strokes <= 0) {
+			unknown = append(unknown, string(char))
+			continue
 		}
-		strokes[i] = stroke
+		if err != nil {
+			return nil, fmt.Errorf("name: query stroke dictionary for %q: %w", string(char), err)
+		}
+		strokes[i] = row.Strokes
+	}
+	if len(unknown) > 0 {
+		return nil, &UnknownCharactersError{Characters: unknown}
 	}
 	return strokes, nil
-}
-
-// estimateStrokes provides fallback stroke counts when DB is unavailable.
-func (e NameEngine) estimateStrokes(chars []rune) []int {
-	strokes := make([]int, len(chars))
-	for i, char := range chars {
-		strokes[i] = e.estimateSingleStroke(char)
-	}
-	return strokes
-}
-
-// estimateSingleStroke gives rough estimate based on character complexity.
-func (e NameEngine) estimateSingleStroke(char rune) int {
-	// Very rough heuristic: most common Chinese chars are 4-12 strokes
-	// This is only a fallback for missing data
-	complexity := int(char)
-	if complexity < 0x4E00 || complexity > 0x9FFF {
-		return 5 // non-CJK default
-	}
-	// Simplified estimate: use a formula based on codepoint
-	// Real implementation should use proper stroke database
-	return 8 // reasonable middle ground
 }
 
 // 五格计算公式（传统五格剖象法）

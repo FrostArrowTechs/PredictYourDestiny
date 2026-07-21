@@ -421,7 +421,8 @@ const zhTW: Translation = {
   },
   astrology: {
     title: '占星本命盤',
-    subtitle: '輸入出生時間，解析你的太陽、月亮、上升星座與行星落座。',
+    subtitle: '輸入出生時間，查看娛樂性簡化的太陽、月亮與近似行星落座。',
+    simplifiedWarning: '目前尚未接入正式星曆，不提供上升、MC、宮位或逆行結論，結果僅供娛樂參考。',
     form: {
       year: '出生年份',
       month: '出生月份',

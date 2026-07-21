@@ -34,36 +34,57 @@ type BaziHandler struct {
 // trusting a client-supplied chart, so the AI always reasons over a
 // fresh, validated result.
 type baziComputeReq struct {
-	Year   int `json:"year"    binding:"required,min=1"`
-	Month  int `json:"month"   binding:"required,min=1"`
-	Day    int `json:"day"     binding:"required,min=1"`
-	Hour   int `json:"hour"`
-	Minute int `json:"minute"`
+	fortune.BirthContext
 	// gender 0 = female is a valid value, so we can't use `required`
 	// (which rejects the zero value). min/max accept both 0 and 1.
-	Gender         int     `json:"gender"  binding:"min=0,max=1"`
-	Longitude      float64 `json:"longitude"`
-	Lang           string  `json:"lang"`
-	InterpretDepth string  `json:"interpretDepth"`
-	Model          string  `json:"model"`
-	Stream         bool    `json:"stream"`
+	Gender         int    `json:"gender"  binding:"min=0,max=1"`
+	Lang           string `json:"lang"`
+	InterpretDepth string `json:"interpretDepth"`
+	Model          string `json:"model"`
+	Stream         bool   `json:"stream"`
 }
 
 // toFortuneInput maps the wire request into the engine's Input. Lang
 // defaults to zh-CN so prompts always have a language to render in.
-func (r baziComputeReq) toFortuneInput() fortune.Input {
+func (r baziComputeReq) toFortuneInput() (fortune.Input, error) {
+	birth, hour, minute, err := r.BirthContext.RequiredClock()
+	if err != nil {
+		return fortune.Input{}, err
+	}
 	lang := r.Lang
 	if lang == "" {
 		lang = "zh-CN"
 	}
+	longitude := 0.0
+	if birth.Longitude != nil {
+		longitude = *birth.Longitude
+	}
 	return fortune.Input{
-		Year: r.Year, Month: r.Month, Day: r.Day,
-		Hour: r.Hour, Minute: r.Minute,
+		Birth: &birth,
+		Year:  birth.Year, Month: birth.Month, Day: birth.Day,
+		Hour: hour, Minute: minute,
 		Gender:         fortune.Gender(r.Gender),
-		Longitude:      r.Longitude,
+		Longitude:      longitude,
 		Lang:           lang,
 		InterpretDepth: r.InterpretDepth,
+	}, nil
+}
+
+func (r baziComputeReq) toUncertaintyInput() (fortune.Input, error) {
+	birth, err := r.BirthContext.Normalized()
+	if err != nil {
+		return fortune.Input{}, err
 	}
+	lang := r.Lang
+	if lang == "" {
+		lang = "zh-CN"
+	}
+	longitude := 0.0
+	if birth.Longitude != nil {
+		longitude = *birth.Longitude
+	}
+	return fortune.Input{Birth: &birth, Year: birth.Year, Month: birth.Month, Day: birth.Day,
+		Gender: fortune.Gender(r.Gender), Longitude: longitude, Lang: lang, InterpretDepth: r.InterpretDepth}, nil
 }
 
 // ─── POST /api/bazi/compute ───────────────────────────────────────
@@ -76,9 +97,9 @@ func (h *BaziHandler) Compute(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	res, err := h.computeChart(req)
+	res, err := h.computeChart(req, true)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		writeBirthComputeError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, res)
@@ -87,12 +108,27 @@ func (h *BaziHandler) Compute(c *gin.Context) {
 // computeChart is shared by Compute and Interpret: it parses the
 // request, runs the engine, and returns the structured Result. A
 // non-nil error means the input was bad (4xx-appropriate).
-func (h *BaziHandler) computeChart(req baziComputeReq) (*fortune.Result, error) {
+func (h *BaziHandler) computeChart(req baziComputeReq, allowUncertainty bool) (*fortune.Result, error) {
 	eng, ok := fortune.Fortune(fortune.KindBazi)
 	if !ok {
 		return nil, fmt.Errorf("bazi engine unavailable")
 	}
-	return eng.Compute(req.toFortuneInput())
+	var input fortune.Input
+	var err error
+	if allowUncertainty {
+		input, err = req.toUncertaintyInput()
+	} else {
+		input, err = req.toFortuneInput()
+	}
+	if err != nil {
+		return nil, err
+	}
+	if allowUncertainty {
+		return fortune.ComputeWithBirthUncertainty(eng, input)
+	}
+	result, err := eng.Compute(input)
+	fortune.AttachBirthMetadata(result, input)
+	return result, err
 }
 
 // ─── POST /api/bazi/interpret ─────────────────────────────────────
@@ -112,9 +148,9 @@ func (h *BaziHandler) Interpret(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	res, err := h.computeChart(req)
+	res, err := h.computeChart(req, false)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		writeBirthComputeError(c, err)
 		return
 	}
 
@@ -123,7 +159,12 @@ func (h *BaziHandler) Interpret(c *gin.Context) {
 		return
 	}
 
-	spec, err := prompt.BaziBuild(req.toFortuneInput(), res)
+	input, err := req.toFortuneInput()
+	if err != nil {
+		writeBirthComputeError(c, err)
+		return
+	}
+	spec, err := prompt.BaziBuild(input, res)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

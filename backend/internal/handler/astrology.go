@@ -24,16 +24,47 @@ type AstrologyHandler struct {
 
 // astrologyComputeReq is the input for natal chart calculation.
 type astrologyComputeReq struct {
-	Year           int     `json:"year" binding:"required,min=1900,max=2100"`
-	Month          int     `json:"month" binding:"required,min=1,max=12"`
-	Day            int     `json:"day" binding:"required,min=1,max=31"`
-	Hour           int     `json:"hour" binding:"min=0,max=23"`
-	Minute         int     `json:"minute" binding:"min=0,max=59"`
-	Longitude      float64 `json:"longitude"`
-	Lang           string  `json:"lang"`
-	InterpretDepth string  `json:"interpretDepth"`
-	Model          string  `json:"model"`
-	Stream         bool    `json:"stream"`
+	fortune.BirthContext
+	Lang           string `json:"lang"`
+	InterpretDepth string `json:"interpretDepth"`
+	Model          string `json:"model"`
+	Stream         bool   `json:"stream"`
+}
+
+func (r astrologyComputeReq) toFortuneInput() (fortune.Input, error) {
+	birth, hour, minute, err := r.BirthContext.RequiredClock()
+	if err != nil {
+		return fortune.Input{}, err
+	}
+	if err := validateBirthYear(birth, 1900, 2100); err != nil {
+		return fortune.Input{}, err
+	}
+	longitude := 0.0
+	if birth.Longitude != nil {
+		longitude = *birth.Longitude
+	}
+	return fortune.Input{
+		Birth: &birth,
+		Year:  birth.Year, Month: birth.Month, Day: birth.Day,
+		Hour: hour, Minute: minute,
+		Longitude: longitude, Lang: r.Lang, InterpretDepth: r.InterpretDepth,
+	}, nil
+}
+
+func (r astrologyComputeReq) toUncertaintyInput() (fortune.Input, error) {
+	birth, err := r.BirthContext.Normalized()
+	if err != nil {
+		return fortune.Input{}, err
+	}
+	if err := validateBirthYear(birth, 1900, 2100); err != nil {
+		return fortune.Input{}, err
+	}
+	longitude := 0.0
+	if birth.Longitude != nil {
+		longitude = *birth.Longitude
+	}
+	return fortune.Input{Birth: &birth, Year: birth.Year, Month: birth.Month, Day: birth.Day,
+		Longitude: longitude, Lang: r.Lang, InterpretDepth: r.InterpretDepth}, nil
 }
 
 // Compute returns the natal chart data without AI interpretation.
@@ -50,24 +81,18 @@ func (h *AstrologyHandler) Compute(c *gin.Context) {
 		return
 	}
 
-	// Build Input from request
-	input := fortune.Input{
-		Year:      req.Year,
-		Month:     req.Month,
-		Day:       req.Day,
-		Hour:      req.Hour,
-		Minute:    req.Minute,
-		Longitude: req.Longitude,
-		Lang:      req.Lang,
-	}
-
-	res, err := eng.Compute(input)
+	input, err := req.toUncertaintyInput()
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		writeBirthComputeError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, res.Data)
+	res, err := fortune.ComputeWithBirthUncertainty(eng, input)
+	if err != nil {
+		writeBirthComputeError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, res)
 }
 
 // Interpret returns AI interpretation of the natal chart.
@@ -84,23 +109,18 @@ func (h *AstrologyHandler) Interpret(c *gin.Context) {
 		return
 	}
 
-	// Build Input from request
-	input := fortune.Input{
-		Year:           req.Year,
-		Month:          req.Month,
-		Day:            req.Day,
-		Hour:           req.Hour,
-		Minute:         req.Minute,
-		Longitude:      req.Longitude,
-		Lang:           req.Lang,
-		InterpretDepth: req.InterpretDepth,
+	input, err := req.toFortuneInput()
+	if err != nil {
+		writeBirthComputeError(c, err)
+		return
 	}
 
 	res, err := eng.Compute(input)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		writeBirthComputeError(c, err)
 		return
 	}
+	fortune.AttachBirthMetadata(res, input)
 
 	if h.Gateway == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "AI gateway not configured"})

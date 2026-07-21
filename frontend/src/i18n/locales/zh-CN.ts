@@ -420,7 +420,8 @@ const zhCN = {
   },
   astrology: {
     title: '占星本命盘',
-    subtitle: '输入出生时间，解析你的太阳、月亮、上升星座与行星落座。',
+    subtitle: '输入出生时间，查看娱乐性简化的太阳、月亮与近似行星落座。',
+    simplifiedWarning: '当前尚未接入正式星历，不提供上升、MC、宫位或逆行结论，结果仅供娱乐参考。',
     form: {
       year: '出生年份',
       month: '出生月份',
