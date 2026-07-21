@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/6tail/lunar-go/calendar" // sanity-check the dep is resolvable
+	"github.com/jackc/pgx/v5/stdlib"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
@@ -33,6 +34,7 @@ import (
 	"predictdestiny/internal/auth"
 	"predictdestiny/internal/config"
 	"predictdestiny/internal/model"
+	"predictdestiny/internal/secret"
 	"predictdestiny/internal/server"
 	"predictdestiny/internal/store"
 	"predictdestiny/internal/version"
@@ -53,9 +55,16 @@ func main() {
 	} else {
 		auth.InitJWT(cfg.JWTSecret)
 	}
+	secretCipher, err := secret.New(cfg.AIProviderEncryptionKey)
+	if err != nil {
+		log.Fatalf("provider encryption: %v", err)
+	}
+	if secretCipher == nil {
+		log.Printf("warn: AI_PROVIDER_ENCRYPTION_KEY not set; provider API keys cannot be saved or used")
+	}
 
 	// 2) database
-	db, err := gorm.Open(postgres.Open(cfg.DatabaseURL), &gorm.Config{
+	db, err := gorm.Open(postgres.New(postgres.Config{Conn: stdlib.OpenDB(*cfg.DatabaseConfig)}), &gorm.Config{
 		Logger: gormlogger.Default.LogMode(gormlogger.Warn),
 	})
 	if err != nil {
@@ -76,6 +85,7 @@ func main() {
 		&model.FortuneRecord{},
 		&model.ChatHistory{},
 		&model.UsageQuota{},
+		&model.AIRequestReservation{},
 		&model.DreamEntry{},
 		&model.DivinationPoem{},
 		&model.CharacterStroke{},
@@ -123,11 +133,20 @@ func main() {
 	if err != nil {
 		log.Fatalf("seed settings: %v", err)
 	}
+	if migrated, err := store.MigrateLegacyAIProvider(db, settingStore, secretCipher); err != nil {
+		log.Fatalf("migrate legacy AI provider: %v", err)
+	} else if migrated {
+		log.Printf("migrated legacy AI gateway settings to the provider catalog")
+	}
+	if encrypted, err := store.EncryptPlaintextProviderKeys(db, secretCipher); err != nil {
+		log.Fatalf("encrypt legacy AI provider keys: %v", err)
+	} else if encrypted > 0 {
+		log.Printf("encrypted %d legacy AI provider key(s)", encrypted)
+	}
 
-	// AI gateway reads base_url / api_key / model list from the
-	// settings table, so it's ready the moment those are configured
-	// via the admin API — no restart needed.
-	gateway := ai.NewOpenAIGateway(settingStore)
+	// Runtime AI traffic reads only the enabled default provider. Admin changes
+	// become visible on the next request without restarting the service.
+	gateway := ai.NewOpenAIGateway(store.NewProviderStore(db, secretCipher))
 
 	// Touch lunar-go so an import error surfaces here, not deep in a
 	// request. (Real usage begins in stage 1 / bazi.)
@@ -135,9 +154,16 @@ func main() {
 
 	// 5) serve
 	srv := &http.Server{
-		Addr:              cfg.ServerAddr,
-		Handler:           server.New(server.Deps{DB: db, Settings: settingStore, Gateway: gateway}),
+		Addr: cfg.ServerAddr,
+		Handler: server.New(server.Deps{
+			DB: db, Settings: settingStore, Gateway: gateway, SecretCipher: secretCipher,
+			AllowedOrigins: cfg.CORSAllowedOrigins, Production: cfg.Environment == "production",
+		}),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      0, // SSE responses may legitimately remain open for minutes.
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	go func() {

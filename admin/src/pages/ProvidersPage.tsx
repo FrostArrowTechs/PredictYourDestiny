@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Bot, Trash2, Edit, Check, Star } from 'lucide-react'
-import { useAuth } from '../App'
+import { Plus, Bot, Trash2, Edit, Check, Star, Activity } from 'lucide-react'
+import { apiRequest } from '../api/client'
 import { PageHeader, EmptyState, LoadingState } from '../components/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -34,15 +34,15 @@ interface Provider {
   isDefault: boolean
   isEnabled: boolean
   sortOrder: number
-}
+  }
 
 export default function ProvidersPage() {
   const { t } = useTranslation()
-  const { token } = useAuth()
   const [providers, setProviders] = useState<Provider[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null)
+  const [checkingProvider, setCheckingProvider] = useState<number | null>(null)
   const [form, setForm] = useState({
     name: '',
     baseUrl: '',
@@ -54,15 +54,12 @@ export default function ProvidersPage() {
 
   useEffect(() => {
     loadProviders()
-  }, [token])
+  }, [])
 
   const loadProviders = async () => {
     setIsLoading(true)
     try {
-      const res = await fetch('/api/admin/providers', {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      const data = await res.json()
+      const data = await apiRequest<{ providers?: Provider[] }>('/admin/providers')
       setProviders(data.providers || [])
     } finally {
       setIsLoading(false)
@@ -71,16 +68,12 @@ export default function ProvidersPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const url = editingProvider ? `/api/admin/providers/${editingProvider.id}` : '/api/admin/providers'
+    const url = editingProvider ? `/admin/providers/${editingProvider.id}` : '/admin/providers'
     const method = editingProvider ? 'PUT' : 'POST'
 
-    await fetch(url, {
+    await apiRequest(url, {
       method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(form),
+      body: form,
     })
 
     setShowModal(false)
@@ -91,19 +84,25 @@ export default function ProvidersPage() {
 
   const handleDelete = async (id: number, name: string) => {
     if (!confirm(`确定要删除供应商 "${name}" 吗？`)) return
-    await fetch(`/api/admin/providers/${id}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    await apiRequest(`/admin/providers/${id}`, { method: 'DELETE' })
     loadProviders()
   }
 
   const handleSetDefault = async (id: number) => {
-    await fetch(`/api/admin/providers/${id}/default`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    await apiRequest(`/admin/providers/${id}/default`, { method: 'POST' })
     loadProviders()
+	}
+
+  const handleHealthCheck = async (id: number) => {
+    setCheckingProvider(id)
+    try {
+      const result = await apiRequest<{ latencyMs: number }>(`/admin/providers/${id}/health`, { method: 'POST' })
+      alert(`供应商连接正常，延迟 ${result.latencyMs} ms`)
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '供应商健康检查失败')
+    } finally {
+      setCheckingProvider(null)
+    }
   }
 
   const openCreate = () => {
@@ -189,6 +188,15 @@ export default function ProvidersPage() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleHealthCheck(provider.id)}
+                        disabled={checkingProvider === provider.id}
+                        title="检查连接"
+                      >
+                        <Activity className="w-4 h-4" />
+                      </Button>
                       {!provider.isDefault && (
                         <Button
                           variant="ghost"

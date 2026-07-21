@@ -8,6 +8,13 @@ import ProvidersPage from './pages/ProvidersPage'
 import TiersPage from './pages/TiersPage'
 import SettingsPage from './pages/SettingsPage'
 import './i18n'
+import {
+  adminUnauthorizedEvent,
+  apiRequest,
+  clearAdminToken,
+  getAdminToken,
+  setAdminToken,
+} from './api/client'
 
 // Auth Context
 interface User {
@@ -35,28 +42,25 @@ export function useAuth() {
 
 function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
-  const [token, setToken] = useState<string | null>(localStorage.getItem('admin_token'))
+  const [token, setToken] = useState<string | null>(getAdminToken())
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
     // Verify token on mount
-    const storedToken = localStorage.getItem('admin_token')
+    const storedToken = getAdminToken()
     if (storedToken) {
-      fetch('/api/auth/me', {
-        headers: { Authorization: `Bearer ${storedToken}` },
-      })
-        .then(res => res.json())
+      apiRequest<{ user?: User }>('/auth/me')
         .then(data => {
           if (data.user && data.user.role === 'admin') {
             setUser(data.user)
             setToken(storedToken)
           } else {
-            localStorage.removeItem('admin_token')
+            clearAdminToken()
             setToken(null)
           }
         })
         .catch(() => {
-          localStorage.removeItem('admin_token')
+          clearAdminToken()
           setToken(null)
         })
         .finally(() => setIsLoading(false))
@@ -65,27 +69,31 @@ function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const login = async (email: string, password: string) => {
-    const res = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    })
-    if (!res.ok) {
-      const data = await res.json()
-      throw new Error(data.error || 'Login failed')
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      setToken(null)
+      setUser(null)
     }
-    const data = await res.json()
+    window.addEventListener(adminUnauthorizedEvent, handleUnauthorized)
+    return () => window.removeEventListener(adminUnauthorizedEvent, handleUnauthorized)
+  }, [])
+
+  const login = async (email: string, password: string) => {
+    const data = await apiRequest<{ token: string; user: User }>('/auth/login', {
+      method: 'POST',
+      auth: false,
+      body: { email, password },
+    })
     if (data.user.role !== 'admin') {
       throw new Error('Admin access required')
     }
-    localStorage.setItem('admin_token', data.token)
+    setAdminToken(data.token)
     setToken(data.token)
     setUser(data.user)
   }
 
   const logout = () => {
-    localStorage.removeItem('admin_token')
+    clearAdminToken()
     setToken(null)
     setUser(null)
   }

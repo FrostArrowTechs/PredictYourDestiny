@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Save, Settings as SettingsIcon, Check } from 'lucide-react'
-import { useAuth } from '../App'
+import { apiRequest } from '../api/client'
 import { PageHeader, LoadingState } from '../components/PageHeader'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -22,7 +22,6 @@ interface Setting {
 
 export default function SettingsPage() {
   const { t } = useTranslation()
-  const { token } = useAuth()
   const [settings, setSettings] = useState<Setting[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [savedKey, setSavedKey] = useState<string | null>(null)
@@ -31,18 +30,15 @@ export default function SettingsPage() {
 
   useEffect(() => {
     loadSettings()
-  }, [token])
+  }, [])
 
   const loadSettings = async () => {
     setIsLoading(true)
     try {
-      const res = await fetch('/api/settings', {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      const data = await res.json()
-      setSettings(data.settings || [])
+      const data = await apiRequest<{ items?: Setting[] }>('/settings')
+      setSettings(data.items || [])
       const drafts: Record<string, string> = {}
-      data.settings?.forEach((s: Setting) => { drafts[s.key] = s.value })
+      data.items?.forEach((s: Setting) => { drafts[s.key] = s.value })
       setDrafts(drafts)
     } finally {
       setIsLoading(false)
@@ -52,13 +48,9 @@ export default function SettingsPage() {
   const handleSave = async (key: string) => {
     setSavingKey(key)
     try {
-      await fetch('/api/settings', {
+      await apiRequest('/settings', {
         method: 'PUT',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ settings: [{ key, value: drafts[key] }] }),
+        body: { items: { [key]: drafts[key] } },
       })
       setSavedKey(key)
       setTimeout(() => setSavedKey(null), 2000)

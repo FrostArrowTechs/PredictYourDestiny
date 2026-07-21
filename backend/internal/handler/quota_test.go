@@ -82,3 +82,51 @@ func TestIncrementUsageUnlimitedDoesNotCreateCounter(t *testing.T) {
 		t.Fatalf("unlimited tier created %d counter rows", count)
 	}
 }
+
+func TestReserveAIRequestRejectsDuplicateWithoutDoubleCharge(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:idempotent_quota?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.UsageQuota{}, &model.AIRequestReservation{}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ReserveAIRequest(db, 99, 5, "request-123"); err != nil {
+		t.Fatalf("first reservation: %v", err)
+	}
+	if err := ReserveAIRequest(db, 99, 5, "request-123"); !errors.Is(err, ErrDuplicateAIRequest) {
+		t.Fatalf("duplicate error = %v", err)
+	}
+
+	var quota model.UsageQuota
+	if err := db.Where("user_id = ?", 99).First(&quota).Error; err != nil {
+		t.Fatal(err)
+	}
+	if quota.Count != 1 {
+		t.Fatalf("quota count = %d, want 1", quota.Count)
+	}
+	var reservations int64
+	if err := db.Model(&model.AIRequestReservation{}).Count(&reservations).Error; err != nil {
+		t.Fatal(err)
+	}
+	if reservations != 1 {
+		t.Fatalf("reservation count = %d, want 1", reservations)
+	}
+}
+
+func TestReserveAIRequestRollsBackKeyWhenQuotaExceeded(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:idempotent_rollback?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.UsageQuota{}, &model.AIRequestReservation{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ReserveAIRequest(db, 100, 0, "retry-after-upgrade"); !errors.Is(err, ErrQuotaExceeded) {
+		t.Fatalf("quota error = %v", err)
+	}
+	if err := ReserveAIRequest(db, 100, 1, "retry-after-upgrade"); err != nil {
+		t.Fatalf("rolled-back key could not be retried: %v", err)
+	}
+}

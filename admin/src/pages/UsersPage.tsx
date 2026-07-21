@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Search, Users as UsersIcon, Shield, ChevronLeft, ChevronRight } from 'lucide-react'
-import { useAuth } from '../App'
+import { apiRequest } from '../api/client'
 import { PageHeader, EmptyState, LoadingState } from '../components/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -44,7 +44,6 @@ interface Tier {
 
 export default function UsersPage() {
   const { t } = useTranslation()
-  const { token } = useAuth()
   const [users, setUsers] = useState<User[]>([])
   const [tiers, setTiers] = useState<Tier[]>([])
   const [total, setTotal] = useState(0)
@@ -57,17 +56,14 @@ export default function UsersPage() {
   useEffect(() => {
     loadUsers()
     loadTiers()
-  }, [token, page])
+  }, [page])
 
   const loadUsers = async () => {
     setIsLoading(true)
     const params = new URLSearchParams({ page: String(page), limit: '20' })
     if (search) params.set('search', search)
     try {
-      const res = await fetch(`/api/admin/users?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      const data = await res.json()
+      const data = await apiRequest<{ users?: User[]; total?: number }>(`/admin/users?${params}`)
       setUsers(data.users || [])
       setTotal(data.total || 0)
     } finally {
@@ -76,8 +72,7 @@ export default function UsersPage() {
   }
 
   const loadTiers = async () => {
-    const res = await fetch('/api/admin/tiers', { headers: { Authorization: `Bearer ${token}` } })
-    const data = await res.json()
+    const data = await apiRequest<{ tiers?: Tier[] }>('/admin/tiers')
     setTiers(data.tiers || [])
   }
 
@@ -89,13 +84,9 @@ export default function UsersPage() {
 
   const handleUpdateTier = async () => {
     if (!editingUser || !selectedTier) return
-    await fetch(`/api/admin/users/${editingUser.id}/tier`, {
+    await apiRequest(`/admin/users/${editingUser.id}/tier`, {
       method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ tierId: selectedTier }),
+      body: { tierId: selectedTier },
     })
     setEditingUser(null)
     setSelectedTier(0)

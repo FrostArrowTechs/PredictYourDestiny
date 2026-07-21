@@ -26,14 +26,14 @@ type AdminUserListResponse struct {
 
 // AdminUserPayload is the user info returned in admin responses.
 type AdminUserPayload struct {
-	ID          uint       `json:"id"`
-	Email       string     `json:"email"`
-	DisplayName string     `json:"displayName"`
-	Role        string     `json:"role"`
-	TierCode    string     `json:"tierCode"`
-	TierName    string     `json:"tierName"`
-	CreatedAt   string     `json:"createdAt"`
-	LastActive  *string    `json:"lastActive"`
+	ID          uint    `json:"id"`
+	Email       string  `json:"email"`
+	DisplayName string  `json:"displayName"`
+	Role        string  `json:"role"`
+	TierCode    string  `json:"tierCode"`
+	TierName    string  `json:"tierName"`
+	CreatedAt   string  `json:"createdAt"`
+	LastActive  *string `json:"lastActive"`
 }
 
 // ListUsers returns a paginated list of users with optional filters.
@@ -205,6 +205,10 @@ func (h *AdminUserHandler) UpdateUserTier(c *gin.Context) {
 	var tier model.MembershipTier
 	if err := h.DB.First(&tier, req.TierID).Error; err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid tier id"})
+		return
+	}
+	if !tier.IsEnabled {
+		c.JSON(http.StatusConflict, gin.H{"error": "cannot assign a disabled tier"})
 		return
 	}
 

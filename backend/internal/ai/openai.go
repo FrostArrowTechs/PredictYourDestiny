@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
@@ -34,8 +33,9 @@ import (
 // fake reader without spinning up PostgreSQL. The production store
 // satisfies it implicitly.
 type OpenAIGateway struct {
-	HTTP     *http.Client
-	Settings SettingsReader
+	HTTP                *http.Client
+	Settings            SettingsReader
+	allowPrivateNetwork bool // tests only; production constructor leaves false
 }
 
 // SettingsReader is the slice of *store.SettingStore the gateway
@@ -53,13 +53,7 @@ type SettingsReader interface {
 // caller's context is the only deadline that matters.
 func NewOpenAIGateway(s SettingsReader) *OpenAIGateway {
 	return &OpenAIGateway{
-		HTTP: &http.Client{
-			Timeout: 0, // rely on ctx for the deadline
-			Transport: &http.Transport{
-				MaxIdleConns:        20,
-				IdleConnTimeout:     90 * time.Second,
-			},
-		},
+		HTTP:     newProviderHTTPClient(),
 		Settings: s,
 	}
 }
@@ -71,6 +65,9 @@ func (g *OpenAIGateway) configured() error {
 	base, _ := g.Settings.Get(model.SettingAIBaseURL)
 	if strings.TrimSpace(base) == "" {
 		return ErrNotConfigured
+	}
+	if err := ValidateProviderBaseURL(base, g.allowPrivateNetwork); err != nil {
+		return err
 	}
 	if _, ok := g.Settings.Get(model.SettingAIAPIKey); !ok {
 		return ErrNotConfigured

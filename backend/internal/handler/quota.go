@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"predictdestiny/internal/auth"
 	"predictdestiny/internal/model"
@@ -102,5 +103,33 @@ func IncrementUsage(db *gorm.DB, userID uint, limit int) error {
 	return nil
 }
 
+// ReserveAIRequest atomically claims an optional idempotency key and reserves
+// quota. Reusing a key is rejected instead of allowing another uncharged AI
+// call. If quota reservation fails, the key insert rolls back as well.
+func ReserveAIRequest(db *gorm.DB, userID uint, limit int, idempotencyKey string) error {
+	if idempotencyKey == "" {
+		return IncrementUsage(db, userID, limit)
+	}
+	today := time.Now().UTC().Format("2006-01-02")
+	return db.Transaction(func(tx *gorm.DB) error {
+		reservation := model.AIRequestReservation{
+			UserID:         userID,
+			Date:           today,
+			IdempotencyKey: idempotencyKey,
+		}
+		result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&reservation)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return ErrDuplicateAIRequest
+		}
+		return IncrementUsage(tx, userID, limit)
+	})
+}
+
 // ErrQuotaExceeded is returned when the user has used up their daily quota.
 var ErrQuotaExceeded = errors.New("daily quota exceeded")
+
+// ErrDuplicateAIRequest means the same user already submitted this key today.
+var ErrDuplicateAIRequest = errors.New("duplicate AI request")

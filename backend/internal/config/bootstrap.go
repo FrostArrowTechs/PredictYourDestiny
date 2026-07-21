@@ -16,23 +16,27 @@
 package config
 
 import (
-	"database/sql"
-	"errors"
 	"fmt"
+	"net/url"
 	"os"
+	"regexp"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
-	_ "github.com/jackc/pgx/v5/stdlib" // pgx driver for the bootstrap check
 	"github.com/joho/godotenv"
 )
 
 // Bootstrap holds the startup-only configuration.
 type Bootstrap struct {
-	DatabaseURL string // PostgreSQL DSN, required
-	ServerAddr  string // HTTP listen address, e.g. ":8080"
-	JWTSecret   string // JWT signing secret, required for auth
-	LogLevel    string // debug | info | warn | error
+	DatabaseURL             string          // PostgreSQL DSN, required
+	DatabaseConfig          *pgx.ConnConfig // parsed connection config used by PostgreSQL clients
+	ServerAddr              string          // HTTP listen address, e.g. ":8080"
+	JWTSecret               string          // JWT signing secret, required for auth
+	AIProviderEncryptionKey string          // base64-encoded 32-byte AES key
+	Environment             string          // development | production
+	CORSAllowedOrigins      []string        // exact browser origins allowed by the API
+	LogLevel                string          // debug | info | warn | error
 }
 
 // Load reads the .env file (if present) and environment variables,
@@ -50,14 +54,20 @@ func Load() (*Bootstrap, error) {
 	_ = godotenv.Load(".env", ".env.local")
 
 	cfg := &Bootstrap{
-		DatabaseURL: getenv("DATABASE_URL", ""),
-		ServerAddr:  getenv("SERVER_ADDR", ":8080"),
-		JWTSecret:   getenv("JWT_SECRET", ""),
-		LogLevel:    strings.ToLower(getenv("LOG_LEVEL", "info")),
+		DatabaseURL:             getenv("DATABASE_URL", ""),
+		ServerAddr:              getenv("SERVER_ADDR", ":8080"),
+		JWTSecret:               getenv("JWT_SECRET", ""),
+		AIProviderEncryptionKey: getenv("AI_PROVIDER_ENCRYPTION_KEY", ""),
+		Environment:             strings.ToLower(getenv("APP_ENV", "development")),
+		CORSAllowedOrigins:      splitCSV(getenv("CORS_ALLOWED_ORIGINS", "")),
+		LogLevel:                strings.ToLower(getenv("LOG_LEVEL", "info")),
 	}
 
 	if strings.TrimSpace(cfg.DatabaseURL) == "" {
 		return nil, fmt.Errorf("DATABASE_URL is required (set it in .env or the environment)")
+	}
+	if cfg.Environment == "production" && len(cfg.CORSAllowedOrigins) == 0 {
+		return nil, fmt.Errorf("CORS_ALLOWED_ORIGINS is required when APP_ENV=production")
 	}
 
 	// Normalize the dbname. If the DSN points at the default `postgres`
@@ -65,12 +75,16 @@ func Load() (*Bootstrap, error) {
 	// it to `predictdestiny` so the application's tables don't pollute
 	// the system catalog. Operators can still target any other database
 	// by setting dbname= explicitly.
-	cfg.DatabaseURL = normalizeDBName(cfg.DatabaseURL, "predictdestiny")
+	databaseConfig, err := normalizeDBName(cfg.DatabaseURL, "predictdestiny")
+	if err != nil {
+		return nil, fmt.Errorf("parse DATABASE_URL: %w", err)
+	}
+	cfg.DatabaseConfig = databaseConfig
 
 	// Make sure the target database exists. If not, we try to create
 	// it. This means a fresh checkout can boot against an empty PG
 	// instance with no manual psql steps.
-	if err := ensureDatabase(cfg.DatabaseURL); err != nil {
+	if err := ensureDatabase(cfg.DatabaseConfig); err != nil {
 		return nil, fmt.Errorf("ensure database: %w", err)
 	}
 
@@ -82,25 +96,26 @@ func Load() (*Bootstrap, error) {
 // the target is changed to the supplied default (e.g. "predictdestiny").
 // Any other explicit dbname is left alone so operators can still point
 // at their own dedicated database.
-func normalizeDBName(dsn, defaultDB string) string {
-	parts := strings.Fields(dsn)
-	hasDBName := false
-	for i, p := range parts {
-		if strings.HasPrefix(p, "dbname=") {
-			hasDBName = true
-			current := strings.TrimPrefix(p, "dbname=")
-			// Only rewrite when pointing at the system DB. Explicit
-			// user-chosen databases (including "postgres" used as a
-			// real application DB) are preserved.
-			if current == "postgres" {
-				parts[i] = "dbname=" + defaultDB
-			}
-		}
+func normalizeDBName(dsn, defaultDB string) (*pgx.ConnConfig, error) {
+	config, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		return nil, err
 	}
-	if !hasDBName {
-		parts = append(parts, "dbname="+defaultDB)
+	if !hasExplicitDatabase(dsn) || config.Database == "" || config.Database == "postgres" {
+		config.Database = defaultDB
 	}
-	return strings.Join(parts, " ")
+	return config, nil
+}
+
+var keywordDatabase = regexp.MustCompile(`(?i)(^|\s)dbname\s*=`)
+
+func hasExplicitDatabase(dsn string) bool {
+	trimmed := strings.TrimSpace(dsn)
+	if strings.HasPrefix(trimmed, "postgres://") || strings.HasPrefix(trimmed, "postgresql://") {
+		u, err := url.Parse(trimmed)
+		return err == nil && u.Path != "" && u.Path != "/"
+	}
+	return keywordDatabase.MatchString(trimmed)
 }
 
 // ensureDatabase guarantees that the database named in the DSN
@@ -115,25 +130,19 @@ func normalizeDBName(dsn, defaultDB string) string {
 //     database they own.
 //
 // The check is idempotent and safe to call on every boot.
-func ensureDatabase(dsn string) error {
-	// Parse dbname out of the DSN. GORM accepts libpq-style key=value
-	// strings, so a quick scan is enough.
-	targetDB, adminDSN, err := splitDSN(dsn)
-	if err != nil {
-		return err
-	}
+func ensureDatabase(config *pgx.ConnConfig) error {
+	targetDB := config.Database
+	adminConfig := config.Copy()
+	adminConfig.Database = "postgres"
 	if targetDB == "" {
-		return errors.New("DATABASE_URL is missing dbname=…")
+		return fmt.Errorf("DATABASE_URL is missing a database name")
 	}
 
 	// Open a connection to the admin database (postgres) to issue
 	// the CREATE DATABASE if needed. We always connect to "postgres"
 	// first because the target database is, by definition, not yet
 	// connectable if it doesn't exist.
-	admin, err := sql.Open("pgx", adminDSN)
-	if err != nil {
-		return fmt.Errorf("open admin db: %w", err)
-	}
+	admin := stdlib.OpenDB(*adminConfig)
 	defer admin.Close()
 
 	if err := admin.Ping(); err != nil {
@@ -154,13 +163,9 @@ func ensureDatabase(dsn string) error {
 		return nil
 	}
 
-	// Create the database. The target name is validated above to
-	// be a real identifier (we only allow letters/digits/underscore).
-	if !isSafeIdent(targetDB) {
-		return fmt.Errorf("refusing to CREATE DATABASE with unsafe name %q", targetDB)
-	}
-
-	if _, err := admin.Exec(fmt.Sprintf(`CREATE DATABASE "%s"`, targetDB)); err != nil {
+	// pgx.Identifier quotes the name as a PostgreSQL identifier, preventing
+	// injection while still permitting legitimate names such as "app-prod".
+	if _, err := admin.Exec("CREATE DATABASE " + pgx.Identifier{targetDB}.Sanitize()); err != nil {
 		// Most likely cause: the user lacks CREATEDB privilege. Give
 		// a clear, actionable error so the operator doesn't have to
 		// guess what to do next.
@@ -176,44 +181,20 @@ func ensureDatabase(dsn string) error {
 	return nil
 }
 
-// splitDSN pulls `dbname=X` out of a libpq DSN and returns
-//   (targetDB, adminDSN) where adminDSN is the same DSN rewritten
-//   to point at the `postgres` database (used for the existence check
-//   and the CREATE DATABASE statement).
-func splitDSN(dsn string) (string, string, error) {
-	parts := strings.Fields(dsn)
-	var target string
-	rest := make([]string, 0, len(parts))
-	for _, p := range parts {
-		if strings.HasPrefix(p, "dbname=") {
-			target = strings.TrimPrefix(p, "dbname=")
-		} else {
-			rest = append(rest, p)
-		}
+// splitDSN parses either a URL or keyword DSN and returns
+//
+//	(targetDB, adminConfig) where adminConfig is the same connection rewritten
+//	to point at the `postgres` database (used for the existence check
+//	and the CREATE DATABASE statement).
+func splitDSN(dsn string) (string, *pgx.ConnConfig, error) {
+	config, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		return "", nil, fmt.Errorf("parse database config: %w", err)
 	}
-	rest = append(rest, "dbname=postgres")
-	return target, strings.Join(rest, " "), nil
-}
-
-// isSafeIdent returns true for identifiers that contain only
-// letters, digits, and underscores. We use this to prevent DSN
-// injection when interpolating the database name into a
-// CREATE DATABASE statement.
-func isSafeIdent(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z':
-		case r >= 'A' && r <= 'Z':
-		case r >= '0' && r <= '9':
-		case r == '_':
-		default:
-			return false
-		}
-	}
-	return true
+	target := config.Database
+	admin := config.Copy()
+	admin.Database = "postgres"
+	return target, admin, nil
 }
 
 // getenv returns the value of the env var named by key, or fallback
@@ -225,7 +206,12 @@ func getenv(key, fallback string) string {
 	return fallback
 }
 
-// silence unused-import warning for pgx/stdlib if the user rebuilds
-// after removing the check above; keeping it referenced makes the
-// driver registration visible to anyone reading this file.
-var _ = stdlib.GetDefaultDriver
+func splitCSV(value string) []string {
+	var values []string
+	for _, item := range strings.Split(value, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			values = append(values, strings.TrimRight(item, "/"))
+		}
+	}
+	return values
+}

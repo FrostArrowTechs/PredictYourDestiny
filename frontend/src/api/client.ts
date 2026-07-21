@@ -13,6 +13,18 @@ const configured = import.meta.env.VITE_API_BASE_URL as string | undefined
 export const API_BASE = configured ? `${configured.replace(/\/$/, '')}/api` : SAME_ORIGIN_BASE
 const BASE = API_BASE
 
+function newIdempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function invalidateSession(): void {
+  localStorage.removeItem('pyd_token')
+  window.dispatchEvent(new Event('pyd:unauthorized'))
+}
+
 function streamHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -20,7 +32,29 @@ function streamHeaders(): Record<string, string> {
   }
   const token = localStorage.getItem('pyd_token')
   if (token) headers.Authorization = `Bearer ${token}`
+  headers['Idempotency-Key'] = newIdempotencyKey()
+  headers['X-Request-ID'] = newIdempotencyKey()
   return headers
+}
+
+async function streamInterpret<T extends object>(
+  path: string,
+  input: T,
+  onEvent: (ev: InterpretStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: 'POST',
+      headers: streamHeaders(),
+      body: JSON.stringify({ ...input, stream: true }),
+      signal,
+    })
+    await consumeSSE(res, onEvent)
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') return
+    onEvent({ error: error instanceof Error ? error.message : 'network error' })
+  }
 }
 
 export class ApiError extends Error {
@@ -44,9 +78,13 @@ async function request<T>(path: string, opts: Options = {}): Promise<T> {
   const token = localStorage.getItem('pyd_token')
   const baseHeaders: Record<string, string> = {
     Accept: 'application/json',
+    'X-Request-ID': newIdempotencyKey(),
   }
   if (body !== undefined) baseHeaders['Content-Type'] = 'application/json'
   if (token) baseHeaders.Authorization = `Bearer ${token}`
+  if (rest.method === 'POST' && path.endsWith('/interpret')) {
+    baseHeaders['Idempotency-Key'] = newIdempotencyKey()
+  }
 
   const res = await fetch(`${BASE}${path}`, {
     headers: {
@@ -56,6 +94,8 @@ async function request<T>(path: string, opts: Options = {}): Promise<T> {
     body: body !== undefined ? JSON.stringify(body) : undefined,
     ...rest,
   })
+
+  if (res.status === 401) invalidateSession()
 
   // 204 or empty bodies parse to null safely.
   const text = await res.text()
@@ -270,58 +310,7 @@ export async function streamBaziInterpret(
   onEvent: (ev: InterpretStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/bazi/interpret`, {
-    method: 'POST',
-    headers: streamHeaders(),
-    body: JSON.stringify({ ...input, stream: true }),
-    signal,
-  })
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    let msg = res.statusText
-    try {
-      const j = JSON.parse(text) as { error?: string }
-      if (j.error) msg = j.error
-    } catch {
-      if (text) msg = text
-    }
-    onEvent({ error: msg })
-    return
-  }
-
-  if (!res.body) {
-    onEvent({ error: 'empty stream' })
-    return
-  }
-
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-
-  for (;;) {
-    const { value, done } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    // SSE events are separated by \n\n; handle multiple per chunk.
-    let idx: number
-    while ((idx = buffer.indexOf('\n\n')) !== -1) {
-      const rawEvent = buffer.slice(0, idx)
-      buffer = buffer.slice(idx + 2)
-      const line = parseSseDataLine(rawEvent)
-      if (line === null) continue
-      if (line === '[DONE]') {
-        onEvent({ done: true })
-        return
-      }
-      try {
-        onEvent(JSON.parse(line) as InterpretStreamEvent)
-      } catch {
-        // skip malformed event
-      }
-    }
-  }
-  onEvent({ done: true })
+  return streamInterpret('/bazi/interpret', input, onEvent, signal)
 }
 
 // parseSseDataLine pulls the payload out of one SSE event block
@@ -388,57 +377,7 @@ export async function streamDreamInterpret(
   onEvent: (ev: InterpretStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/dream/interpret`, {
-    method: 'POST',
-    headers: streamHeaders(),
-    body: JSON.stringify({ ...input, stream: true }),
-    signal,
-  })
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    let msg = res.statusText
-    try {
-      const j = JSON.parse(text) as { error?: string }
-      if (j.error) msg = j.error
-    } catch {
-      if (text) msg = text
-    }
-    onEvent({ error: msg })
-    return
-  }
-
-  if (!res.body) {
-    onEvent({ error: 'empty stream' })
-    return
-  }
-
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-
-  for (;;) {
-    const { value, done } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    let idx: number
-    while ((idx = buffer.indexOf('\n\n')) !== -1) {
-      const rawEvent = buffer.slice(0, idx)
-      buffer = buffer.slice(idx + 2)
-      const line = parseSseDataLine(rawEvent)
-      if (line === null) continue
-      if (line === '[DONE]') {
-        onEvent({ done: true })
-        return
-      }
-      try {
-        onEvent(JSON.parse(line) as InterpretStreamEvent)
-      } catch {
-        // skip malformed event
-      }
-    }
-  }
-  onEvent({ done: true })
+  return streamInterpret('/dream/interpret', input, onEvent, signal)
 }
 
 // ── huangli (万年历黄历) ──────────────────────────────────────────────
@@ -506,57 +445,7 @@ export async function streamHuangliInterpret(
   onEvent: (ev: InterpretStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/huangli/interpret`, {
-    method: 'POST',
-    headers: streamHeaders(),
-    body: JSON.stringify({ ...input, stream: true }),
-    signal,
-  })
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    let msg = res.statusText
-    try {
-      const j = JSON.parse(text) as { error?: string }
-      if (j.error) msg = j.error
-    } catch {
-      if (text) msg = text
-    }
-    onEvent({ error: msg })
-    return
-  }
-
-  if (!res.body) {
-    onEvent({ error: 'empty stream' })
-    return
-  }
-
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-
-  for (;;) {
-    const { value, done } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    let idx: number
-    while ((idx = buffer.indexOf('\n\n')) !== -1) {
-      const rawEvent = buffer.slice(0, idx)
-      buffer = buffer.slice(idx + 2)
-      const line = parseSseDataLine(rawEvent)
-      if (line === null) continue
-      if (line === '[DONE]') {
-        onEvent({ done: true })
-        return
-      }
-      try {
-        onEvent(JSON.parse(line) as InterpretStreamEvent)
-      } catch {
-        // skip malformed event
-      }
-    }
-  }
-  onEvent({ done: true })
+  return streamInterpret('/huangli/interpret', input, onEvent, signal)
 }
 
 // ── zodiac (生肖运势) ──────────────────────────────────────────────
@@ -611,13 +500,7 @@ export async function streamZodiacInterpret(
   onEvent: (ev: InterpretStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/zodiac/interpret`, {
-    method: 'POST',
-    headers: streamHeaders(),
-    body: JSON.stringify({ ...input, stream: true }),
-    signal,
-  })
-  await consumeSSE(res, onEvent)
+  return streamInterpret('/zodiac/interpret', input, onEvent, signal)
 }
 
 // ── compatibility (男女配对) ───────────────────────────────────────
@@ -681,13 +564,7 @@ export async function streamCompatibilityInterpret(
   onEvent: (ev: InterpretStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/compatibility/interpret`, {
-    method: 'POST',
-    headers: streamHeaders(),
-    body: JSON.stringify({ ...input, stream: true }),
-    signal,
-  })
-  await consumeSSE(res, onEvent)
+  return streamInterpret('/compatibility/interpret', input, onEvent, signal)
 }
 
 // ── shared SSE consumer helper ─────────────────────────────────────
@@ -696,6 +573,7 @@ async function consumeSSE(
   res: Response,
   onEvent: (ev: InterpretStreamEvent) => void,
 ): Promise<void> {
+  if (res.status === 401) invalidateSession()
   if (!res.ok) {
     const text = await res.text().catch(() => '')
     let msg = res.statusText
@@ -783,13 +661,7 @@ export async function streamWeighboneInterpret(
   onEvent: (ev: InterpretStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/weighbone/interpret`, {
-    method: 'POST',
-    headers: streamHeaders(),
-    body: JSON.stringify({ ...input, stream: true }),
-    signal,
-  })
-  await consumeSSE(res, onEvent)
+  return streamInterpret('/weighbone/interpret', input, onEvent, signal)
 }
 
 // ── divination (抽签/求签) ─────────────────────────────────────────
@@ -827,13 +699,7 @@ export async function streamDivinationInterpret(
   onEvent: (ev: InterpretStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/divination/interpret`, {
-    method: 'POST',
-    headers: streamHeaders(),
-    body: JSON.stringify({ ...input, stream: true }),
-    signal,
-  })
-  await consumeSSE(res, onEvent)
+  return streamInterpret('/divination/interpret', input, onEvent, signal)
 }
 
 // ── plumflower (梅花易数) ──────────────────────────────────────────
@@ -889,13 +755,7 @@ export async function streamPlumFlowerInterpret(
   onEvent: (ev: InterpretStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/plumflower/interpret`, {
-    method: 'POST',
-    headers: streamHeaders(),
-    body: JSON.stringify({ ...input, stream: true }),
-    signal,
-  })
-  await consumeSSE(res, onEvent)
+  return streamInterpret('/plumflower/interpret', input, onEvent, signal)
 }
 
 // ── name (姓名学) ─────────────────────────────────────────────────────
@@ -949,13 +809,7 @@ export async function streamNameInterpret(
   onEvent: (ev: InterpretStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/name/interpret`, {
-    method: 'POST',
-    headers: streamHeaders(),
-    body: JSON.stringify({ ...input, stream: true }),
-    signal,
-  })
-  await consumeSSE(res, onEvent)
+  return streamInterpret('/name/interpret', input, onEvent, signal)
 }
 
 // ── astrology (占星本命盘) ──────────────────────────────────────────────
@@ -1048,13 +902,7 @@ export async function streamAstrologyInterpret(
   onEvent: (ev: InterpretStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/astrology/interpret`, {
-    method: 'POST',
-    headers: streamHeaders(),
-    body: JSON.stringify({ ...input, stream: true }),
-    signal,
-  })
-  await consumeSSE(res, onEvent)
+  return streamInterpret('/astrology/interpret', input, onEvent, signal)
 }
 
 // ── constellation (星座运势) ──────────────────────────────────────────
@@ -1106,13 +954,7 @@ export async function streamConstellationInterpret(
   onEvent: (ev: InterpretStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/constellation/interpret`, {
-    method: 'POST',
-    headers: streamHeaders(),
-    body: JSON.stringify({ ...input, stream: true }),
-    signal,
-  })
-  await consumeSSE(res, onEvent)
+  return streamInterpret('/constellation/interpret', input, onEvent, signal)
 }
 
 // ── tarot (塔罗) ──────────────────────────────────────────────────────
@@ -1168,13 +1010,7 @@ export async function streamTarotInterpret(
   onEvent: (ev: InterpretStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/tarot/interpret`, {
-    method: 'POST',
-    headers: streamHeaders(),
-    body: JSON.stringify({ ...input, stream: true }),
-    signal,
-  })
-  await consumeSSE(res, onEvent)
+  return streamInterpret('/tarot/interpret', input, onEvent, signal)
 }
 
 // ── ziwei (紫微斗数) ──────────────────────────────────────────────────
@@ -1235,13 +1071,7 @@ export async function streamZiweiInterpret(
   onEvent: (ev: InterpretStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/ziwei/interpret`, {
-    method: 'POST',
-    headers: streamHeaders(),
-    body: JSON.stringify({ ...input, stream: true }),
-    signal,
-  })
-  await consumeSSE(res, onEvent)
+  return streamInterpret('/ziwei/interpret', input, onEvent, signal)
 }
 
 // ── auth (认证) ────────────────────────────────────────────────────

@@ -45,7 +45,7 @@ func newGateway(t *testing.T, srv *httptest.Server, extra map[string]string) *Op
 	for k, v := range extra {
 		settings[k] = v
 	}
-	return NewOpenAIGateway(settings)
+	return &OpenAIGateway{HTTP: srv.Client(), Settings: settings, allowPrivateNetwork: true}
 }
 
 // ─── Chat (synchronous) ───────────────────────────────────────────
@@ -133,10 +133,10 @@ func TestChatNoModelResolved(t *testing.T) {
 	}))
 	defer srv.Close()
 	// configured (base+key) but no model catalog and no default
-	g := NewOpenAIGateway(fakeSettings{
+	g := &OpenAIGateway{HTTP: srv.Client(), allowPrivateNetwork: true, Settings: fakeSettings{
 		model.SettingAIBaseURL: srv.URL + "/v1",
 		model.SettingAIAPIKey:  "k",
-	})
+	}}
 	_, err := g.Chat(context.Background(), "", []Message{{Role: RoleUser, Content: "hi"}}, Options{})
 	if !errors.Is(err, ErrNotConfigured) {
 		t.Errorf("got %v, want ErrNotConfigured (no model resolved)", err)
@@ -386,7 +386,7 @@ func TestSDKProtocolParse(t *testing.T) {
 
 	cli := openai.NewClient(option.WithBaseURL(srv.URL+"/"), option.WithAPIKey("k"))
 	completion, err := cli.Chat.Completions.New(context.Background(), openai.ChatCompletionNewParams{
-		Model:    openai.ChatModel("m"),
+		Model: openai.ChatModel("m"),
 		Messages: []openai.ChatCompletionMessageParamUnion{{OfUser: &openai.ChatCompletionUserMessageParam{
 			Content: openai.ChatCompletionUserMessageParamContentUnion{OfString: openai.String("hi")},
 		}}},

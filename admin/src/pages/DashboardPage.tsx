@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Users, Bot, Layers, TrendingUp } from 'lucide-react'
-import { useAuth } from '../App'
+import { apiRequest } from '../api/client'
 import { PageHeader } from '../components/PageHeader'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Skeleton } from '../components/ui/Skeleton'
@@ -14,16 +14,13 @@ interface Stats {
 
 export default function DashboardPage() {
   const { t } = useTranslation()
-  const { token } = useAuth()
   const [stats, setStats] = useState<Stats | null>(null)
 
   useEffect(() => {
-    const headers = { Authorization: `Bearer ${token}` }
-
     Promise.all([
-      fetch('/api/admin/users?limit=1', { headers }).then(r => r.json()),
-      fetch('/api/admin/providers', { headers }).then(r => r.json()),
-      fetch('/api/admin/tiers', { headers }).then(r => r.json()),
+      apiRequest<{ total?: number }>('/admin/users?limit=1'),
+      apiRequest<{ providers?: unknown[] }>('/admin/providers'),
+      apiRequest<{ tiers?: unknown[] }>('/admin/tiers'),
     ]).then(([users, providers, tiers]) => {
       setStats({
         totalUsers: users.total || 0,
@@ -31,7 +28,7 @@ export default function DashboardPage() {
         totalTiers: (tiers.tiers || []).length,
       })
     })
-  }, [token])
+  }, [])
 
   const cards = [
     { label: t('dashboard.totalUsers'), value: stats?.totalUsers, icon: Users, color: 'text-blue-600', bg: 'bg-blue-50' },

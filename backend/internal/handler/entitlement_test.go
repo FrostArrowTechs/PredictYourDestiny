@@ -2,8 +2,10 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -87,4 +89,27 @@ func TestEntitlementResponseAndExpiredFallback(t *testing.T) {
 	if len(active.Features) != 2 || active.ExpiresAt == nil {
 		t.Fatalf("active features/expiry = %+v", active)
 	}
+
+	if err := db.Model(&basic).Update("is_enabled", false).Error; err != nil {
+		t.Fatal(err)
+	}
+	disabled := get()
+	if disabled.EffectiveTier != model.TierCodeFree || !disabled.FellBackToFree {
+		t.Fatalf("disabled tier response = %+v", disabled)
+	}
+
+	adminRouter := gin.New()
+	adminRouter.PUT("/users/:id/tier", (&AdminUserHandler{DB: db}).UpdateUserTier)
+	body := strings.NewReader(`{"tierId":` + jsonNumber(basic.ID) + `}`)
+	req := httptest.NewRequest(http.MethodPut, "/users/10/tier", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	adminRouter.ServeHTTP(w, req)
+	if w.Code != http.StatusConflict {
+		t.Fatalf("assign disabled tier status = %d, body = %s", w.Code, w.Body.String())
+	}
+}
+
+func jsonNumber(value uint) string {
+	return fmt.Sprintf("%d", value)
 }

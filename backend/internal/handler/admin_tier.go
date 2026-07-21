@@ -22,6 +22,7 @@ type TierPayload struct {
 	Name       string `json:"name"`
 	DailyQuota int    `json:"dailyQuota"`
 	Features   string `json:"features"`
+	IsEnabled  bool   `json:"isEnabled"`
 	PriceMonth int    `json:"priceMonth"`
 	SortOrder  int    `json:"sortOrder"`
 }
@@ -42,6 +43,7 @@ func (h *AdminTierHandler) ListTiers(c *gin.Context) {
 			Name:       t.Name,
 			DailyQuota: t.DailyQuota,
 			Features:   t.Features,
+			IsEnabled:  t.IsEnabled,
 			PriceMonth: t.PriceMonth,
 			SortOrder:  t.SortOrder,
 		}
@@ -56,6 +58,7 @@ type CreateTierRequest struct {
 	Name       string `json:"name" binding:"required"`
 	DailyQuota int    `json:"dailyQuota"`
 	Features   string `json:"features"`
+	IsEnabled  *bool  `json:"isEnabled"`
 	PriceMonth int    `json:"priceMonth"`
 	SortOrder  int    `json:"sortOrder"`
 }
@@ -82,6 +85,14 @@ func (h *AdminTierHandler) CreateTier(c *gin.Context) {
 		Features:   req.Features,
 		PriceMonth: req.PriceMonth,
 		SortOrder:  req.SortOrder,
+		IsEnabled:  true,
+	}
+	if req.IsEnabled != nil {
+		tier.IsEnabled = *req.IsEnabled
+	}
+	if tier.Code == model.TierCodeFree && !tier.IsEnabled {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "the free tier must remain enabled"})
+		return
 	}
 
 	if err := h.DB.Create(&tier).Error; err != nil {
@@ -95,6 +106,7 @@ func (h *AdminTierHandler) CreateTier(c *gin.Context) {
 		Name:       tier.Name,
 		DailyQuota: tier.DailyQuota,
 		Features:   tier.Features,
+		IsEnabled:  tier.IsEnabled,
 		PriceMonth: tier.PriceMonth,
 		SortOrder:  tier.SortOrder,
 	})
@@ -105,6 +117,7 @@ type UpdateTierRequest struct {
 	Name       string `json:"name"`
 	DailyQuota *int   `json:"dailyQuota"`
 	Features   string `json:"features"`
+	IsEnabled  *bool  `json:"isEnabled"`
 	PriceMonth *int   `json:"priceMonth"`
 	SortOrder  *int   `json:"sortOrder"`
 }
@@ -139,6 +152,13 @@ func (h *AdminTierHandler) UpdateTier(c *gin.Context) {
 	if req.Features != "" {
 		tier.Features = req.Features
 	}
+	if req.IsEnabled != nil {
+		if tier.Code == model.TierCodeFree && !*req.IsEnabled {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "the free tier must remain enabled"})
+			return
+		}
+		tier.IsEnabled = *req.IsEnabled
+	}
 	if req.PriceMonth != nil {
 		tier.PriceMonth = *req.PriceMonth
 	}
@@ -157,6 +177,7 @@ func (h *AdminTierHandler) UpdateTier(c *gin.Context) {
 		Name:       tier.Name,
 		DailyQuota: tier.DailyQuota,
 		Features:   tier.Features,
+		IsEnabled:  tier.IsEnabled,
 		PriceMonth: tier.PriceMonth,
 		SortOrder:  tier.SortOrder,
 	})

@@ -22,6 +22,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
+    const handleUnauthorized = () => setUser(null)
+    window.addEventListener('pyd:unauthorized', handleUnauthorized)
+
     // Check if user is logged in on mount
     const token = localStorage.getItem('pyd_token')
     if (token) {
@@ -34,6 +37,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } else {
       setIsLoading(false)
     }
+
+    return () => window.removeEventListener('pyd:unauthorized', handleUnauthorized)
   }, [])
 
   const login = async (email: string, password: string) => {

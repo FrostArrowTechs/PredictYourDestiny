@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Plus, Layers, Edit, Trash2, Infinity as InfinityIcon } from 'lucide-react'
-import { useAuth } from '../App'
+import { apiRequest, ApiError } from '../api/client'
 import { PageHeader, EmptyState, LoadingState } from '../components/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -33,11 +33,11 @@ interface Tier {
   features: string
   priceMonth: number
   sortOrder: number
+  isEnabled: boolean
 }
 
 export default function TiersPage() {
   const { t } = useTranslation()
-  const { token } = useAuth()
   const [tiers, setTiers] = useState<Tier[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
@@ -47,19 +47,17 @@ export default function TiersPage() {
     name: '',
     dailyQuota: 5,
     priceYuan: 0,
+    isEnabled: true,
   })
 
   useEffect(() => {
     loadTiers()
-  }, [token])
+  }, [])
 
   const loadTiers = async () => {
     setIsLoading(true)
     try {
-      const res = await fetch('/api/admin/tiers', {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      const data = await res.json()
+      const data = await apiRequest<{ tiers?: Tier[] }>('/admin/tiers')
       setTiers(data.tiers || [])
     } finally {
       setIsLoading(false)
@@ -68,28 +66,25 @@ export default function TiersPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const url = editingTier ? `/api/admin/tiers/${editingTier.id}` : '/api/admin/tiers'
+    const url = editingTier ? `/admin/tiers/${editingTier.id}` : '/admin/tiers'
     const method = editingTier ? 'PUT' : 'POST'
 
     const body: Record<string, unknown> = {
       name: form.name,
       dailyQuota: form.dailyQuota,
       priceMonth: Math.round(form.priceYuan * 100),
+      isEnabled: form.isEnabled,
     }
     if (!editingTier) body.code = form.code
 
-    await fetch(url, {
+    await apiRequest(url, {
       method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
+      body,
     })
 
     setShowModal(false)
     setEditingTier(null)
-    setForm({ code: '', name: '', dailyQuota: 5, priceYuan: 0 })
+    setForm({ code: '', name: '', dailyQuota: 5, priceYuan: 0, isEnabled: true })
     loadTiers()
   }
 
@@ -99,21 +94,17 @@ export default function TiersPage() {
       return
     }
     if (!confirm(`确定要删除层级 "${code}" 吗？`)) return
-    const res = await fetch(`/api/admin/tiers/${id}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}` },
-    })
-    if (res.ok) {
+    try {
+      await apiRequest(`/admin/tiers/${id}`, { method: 'DELETE' })
       loadTiers()
-    } else {
-      const data = await res.json()
-      alert(data.error || '删除失败')
+    } catch (error) {
+      alert(error instanceof ApiError ? error.message : '删除失败')
     }
   }
 
   const openCreate = () => {
     setEditingTier(null)
-    setForm({ code: '', name: '', dailyQuota: 5, priceYuan: 0 })
+    setForm({ code: '', name: '', dailyQuota: 5, priceYuan: 0, isEnabled: true })
     setShowModal(true)
   }
 
@@ -124,6 +115,7 @@ export default function TiersPage() {
       name: tier.name,
       dailyQuota: tier.dailyQuota,
       priceYuan: tier.priceMonth / 100,
+      isEnabled: tier.isEnabled,
     })
     setShowModal(true)
   }
@@ -154,6 +146,7 @@ export default function TiersPage() {
                 <TableHead>{t('tiers.name')}</TableHead>
                 <TableHead>{t('tiers.dailyQuota')}</TableHead>
                 <TableHead>{t('tiers.priceMonth')}</TableHead>
+                <TableHead>状态</TableHead>
                 <TableHead className="text-right">{t('tiers.actions')}</TableHead>
               </TableRow>
             </TableHeader>
@@ -184,6 +177,11 @@ export default function TiersPage() {
                     ) : (
                       <Badge variant="secondary">免费</Badge>
                     )}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={tier.isEnabled ? 'success' : 'secondary'}>
+                      {tier.isEnabled ? '启用' : '禁用'}
+                    </Badge>
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1">
@@ -263,6 +261,15 @@ export default function TiersPage() {
               />
               <p className="text-xs text-slate-500">填 0 表示免费</p>
             </div>
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={form.isEnabled}
+                disabled={editingTier?.code === 'free'}
+                onChange={e => setForm({ ...form, isEnabled: e.target.checked })}
+              />
+              启用该会员层级
+            </label>
           </form>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowModal(false)}>

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -26,7 +27,7 @@ type entitlement struct {
 func effectiveEntitlement(db *gorm.DB, userID uint, now time.Time) (entitlement, error) {
 	var membership model.UserMembership
 	err := db.Preload("Tier").Where("user_id = ?", userID).First(&membership).Error
-	if err == nil && membership.Tier != nil &&
+	if err == nil && membership.Tier != nil && membership.Tier.IsEnabled &&
 		(membership.ExpiresAt == nil || membership.ExpiresAt.After(now)) {
 		return entitlement{Tier: *membership.Tier, ExpiresAt: membership.ExpiresAt}, nil
 	}
@@ -35,7 +36,7 @@ func effectiveEntitlement(db *gorm.DB, userID uint, now time.Time) (entitlement,
 	}
 
 	var free model.MembershipTier
-	if err := db.Where("code = ?", model.TierCodeFree).First(&free).Error; err != nil {
+	if err := db.Where("code = ? AND is_enabled = ?", model.TierCodeFree, true).First(&free).Error; err != nil {
 		return entitlement{}, err
 	}
 	return entitlement{Tier: free, FellBackToFree: true}, nil
@@ -140,13 +141,23 @@ func authorizeAIRequest(c *gin.Context, db *gorm.DB, gateway ai.Gateway, request
 		return "", false
 	}
 
-	if err := IncrementUsage(db, userID, ent.Tier.DailyQuota); err != nil {
+	idempotencyKey := strings.TrimSpace(c.GetHeader("Idempotency-Key"))
+	if len(idempotencyKey) > 128 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "idempotency key is too long"})
+		return "", false
+	}
+	if err := ReserveAIRequest(db, userID, ent.Tier.DailyQuota, idempotencyKey); err != nil {
 		if errors.Is(err, ErrQuotaExceeded) {
 			c.JSON(http.StatusTooManyRequests, gin.H{"error": "daily quota exceeded"})
+		} else if errors.Is(err, ErrDuplicateAIRequest) {
+			c.JSON(http.StatusConflict, gin.H{"error": "duplicate AI request"})
 		} else {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "quota unavailable"})
 		}
 		return "", false
+	}
+	if idempotencyKey != "" {
+		c.Header("Idempotency-Key", idempotencyKey)
 	}
 	return selected, true
 }

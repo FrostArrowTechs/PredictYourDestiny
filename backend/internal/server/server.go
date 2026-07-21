@@ -19,6 +19,7 @@ import (
 	"predictdestiny/internal/ai"
 	"predictdestiny/internal/auth"
 	"predictdestiny/internal/handler"
+	"predictdestiny/internal/secret"
 	"predictdestiny/internal/store"
 )
 
@@ -29,25 +30,34 @@ import (
 // is served from a different origin (e.g. Cloudflare Pages), so there
 // is no static-asset serving here.
 type Deps struct {
-	DB       *gorm.DB
-	Settings *store.SettingStore
-	Gateway  ai.Gateway
+	DB             *gorm.DB
+	Settings       *store.SettingStore
+	Gateway        ai.Gateway
+	SecretCipher   *secret.Cipher
+	AllowedOrigins []string
+	Production     bool
 }
 
 // New assembles the Gin engine with all routes registered.
 func New(deps Deps) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
-	r.Use(gin.Logger(), gin.Recovery())
+	r.Use(requestIDMiddleware(), securityHeaders(deps.Production), gin.Logger(), gin.Recovery())
 
-	// Permissive CORS so the separately-deployed frontend (different
-	// origin, e.g. Cloudflare Pages) can call the API. Tighten the
-	// allow-list once the production domain is known.
+	allowedOrigins := deps.AllowedOrigins
+	if len(allowedOrigins) == 0 {
+		allowedOrigins = []string{
+			"http://localhost:5173", "http://localhost:5174",
+			"http://127.0.0.1:5173", "http://127.0.0.1:5174",
+		}
+	}
 	r.Use(cors.New(cors.Config{
-		AllowAllOrigins:  true,
+		AllowOrigins:     allowedOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"*"},
-		AllowCredentials: false, // must be false when AllowAllOrigins is true
+		AllowHeaders:     []string{"Accept", "Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID"},
+		ExposeHeaders:    []string{"X-Request-ID"},
+		AllowCredentials: false,
+		MaxAge:           12 * time.Hour,
 	}))
 
 	// Basic abuse protection. Authentication endpoints are keyed by IP;
@@ -66,7 +76,7 @@ func New(deps Deps) *gin.Engine {
 	quota := &handler.QuotaHandler{DB: deps.DB}
 	entitlements := &handler.EntitlementHandler{DB: deps.DB, Gateway: deps.Gateway}
 	adminUser := &handler.AdminUserHandler{DB: deps.DB}
-	adminProvider := &handler.AdminProviderHandler{DB: deps.DB}
+	adminProvider := &handler.AdminProviderHandler{DB: deps.DB, Cipher: deps.SecretCipher}
 	adminTier := &handler.AdminTierHandler{DB: deps.DB}
 	bazi := &handler.BaziHandler{Gateway: deps.Gateway, DB: deps.DB}
 	dream := &handler.DreamHandler{Gateway: deps.Gateway, DB: deps.DB}
@@ -121,6 +131,7 @@ func New(deps Deps) *gin.Engine {
 			admin.PUT("/providers/:id", adminProvider.UpdateProvider)
 			admin.DELETE("/providers/:id", adminProvider.DeleteProvider)
 			admin.POST("/providers/:id/default", adminProvider.SetDefaultProvider)
+			admin.POST("/providers/:id/health", adminProvider.CheckProviderHealth)
 
 			// Membership tier management
 			admin.GET("/tiers", adminTier.ListTiers)
