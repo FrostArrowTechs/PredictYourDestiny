@@ -7,6 +7,7 @@ import UsersPage from './pages/UsersPage'
 import ProvidersPage from './pages/ProvidersPage'
 import TiersPage from './pages/TiersPage'
 import SettingsPage from './pages/SettingsPage'
+import UsagePage from './pages/UsagePage'
 import './i18n'
 import {
   adminUnauthorizedEvent,
@@ -128,6 +129,7 @@ function App() {
             <Route path="users" element={<UsersPage />} />
             <Route path="providers" element={<ProvidersPage />} />
             <Route path="tiers" element={<TiersPage />} />
+            <Route path="usage" element={<UsagePage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
         </Routes>

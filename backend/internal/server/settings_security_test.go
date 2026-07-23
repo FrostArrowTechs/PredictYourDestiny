@@ -20,7 +20,13 @@ func TestSettingsRouteRequiresAdminAndMasksSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Setting{}); err != nil {
+	if err := db.AutoMigrate(&model.Setting{}, &model.User{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&[]model.User{
+		{ID: 1, Email: "user@example.com", Password: "not-used", Role: "user"},
+		{ID: 2, Email: "admin@example.com", Password: "not-used", Role: "admin"},
+	}).Error; err != nil {
 		t.Fatal(err)
 	}
 	settings, err := store.NewSettingStore(db, []model.Setting{

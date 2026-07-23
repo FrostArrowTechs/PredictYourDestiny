@@ -51,7 +51,7 @@ func (h *DivinationHandler) Compute(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, res)
+	writeComputedResult(c, h.DB, fortune.KindDivination, req, res)
 }
 
 func (h *DivinationHandler) Interpret(c *gin.Context) {

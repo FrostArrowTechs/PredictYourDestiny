@@ -4,6 +4,7 @@ export default {
     users: '用户管理',
     providers: '模型供应商',
     tiers: '会员层级',
+    usage: 'AI 用量与成本',
     settings: '系统设置',
     logout: '退出登录',
   },

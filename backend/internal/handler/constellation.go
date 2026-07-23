@@ -60,7 +60,7 @@ func (h *ConstellationHandler) Compute(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, res)
+	writeComputedResult(c, h.DB, fortune.KindConstellation, req, res)
 }
 
 func (h *ConstellationHandler) computeChart(req constellationComputeReq) (*fortune.Result, error) {

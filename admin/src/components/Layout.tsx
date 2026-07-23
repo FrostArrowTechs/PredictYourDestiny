@@ -8,6 +8,7 @@ import {
   Settings,
   LogOut,
   Sparkles,
+  BarChart3,
 } from 'lucide-react'
 import { useAuth } from '../App'
 import { Button } from './ui/Button'
@@ -28,6 +29,7 @@ export default function Layout() {
     { to: '/users', label: t('nav.users'), icon: Users },
     { to: '/providers', label: t('nav.providers'), icon: Bot },
     { to: '/tiers', label: t('nav.tiers'), icon: Layers },
+    { to: '/usage', label: t('nav.usage'), icon: BarChart3 },
     { to: '/settings', label: t('nav.settings'), icon: Settings },
   ]
 

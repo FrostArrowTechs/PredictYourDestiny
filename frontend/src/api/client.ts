@@ -1200,6 +1200,24 @@ export const Auth = {
   me: () => api.get<{ user: AuthUser }>('/auth/me'),
 }
 
+export interface AccountExport {
+  formatVersion: string
+  exportedAt: string
+  user: AuthUser
+  memberships: unknown[]
+  records: FortuneRecord[]
+  chats: unknown[]
+  usage: unknown[]
+  nameAnalyses: unknown[]
+  aiUsage: unknown[]
+}
+
+export const Account = {
+  export: () => api.get<AccountExport>('/account/export'),
+  clearHistory: () => api.del<null>('/records'),
+  delete: (password: string) => api.del<null>('/account', { body: { password } }),
+}
+
 // ── records (用户历史记录) ──────────────────────────────────────────
 
 export interface FortuneRecord {
@@ -1208,6 +1226,7 @@ export interface FortuneRecord {
   title: string
   inputJson: string
   resultJson: string
+  serverGenerated: boolean
   note: string
   createdAt: string
 }
@@ -1217,14 +1236,6 @@ export interface RecordsResponse {
   total: number
   page: number
   limit: number
-}
-
-export interface CreateRecordInput {
-  kind: string
-  title?: string
-  inputJson: string
-  resultJson: string
-  note?: string
 }
 
 export const Records = {
@@ -1237,7 +1248,6 @@ export const Records = {
     return api.get<RecordsResponse>(`/records${qs ? `?${qs}` : ''}`)
   },
   get: (id: number) => api.get<FortuneRecord>(`/records/${id}`),
-  create: (input: CreateRecordInput) => api.post<FortuneRecord>('/records', input),
   delete: (id: number) => api.del<{ message: string }>(`/records/${id}`),
 }
 
@@ -1248,6 +1258,10 @@ export interface QuotaResponse {
   used: number
   remaining: number
   limit: number
+  estimatedCostMicros: number
+  reservedCostMicros: number
+  costBudgetMicros: number
+  costRemainingMicros: number
 }
 
 export const Quota = {

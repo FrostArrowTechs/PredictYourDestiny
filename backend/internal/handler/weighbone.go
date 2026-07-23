@@ -85,7 +85,7 @@ func (h *WeighboneHandler) Compute(c *gin.Context) {
 		writeBirthComputeError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, res)
+	writeComputedResult(c, h.DB, fortune.KindWeighbone, req, res)
 }
 
 func (h *WeighboneHandler) Interpret(c *gin.Context) {

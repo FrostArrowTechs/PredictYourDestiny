@@ -87,7 +87,7 @@ func (h *ZiweiHandler) Compute(c *gin.Context) {
 		writeBirthComputeError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, res)
+	writeComputedResult(c, h.DB, fortune.KindZiwei, req, res)
 }
 
 func (h *ZiweiHandler) computeChart(req ziweiComputeReq, allowUncertainty bool) (*fortune.Result, error) {

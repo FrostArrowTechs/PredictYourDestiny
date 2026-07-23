@@ -73,7 +73,7 @@ func (h *TarotHandler) Draw(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, res)
+	writeComputedResult(c, h.DB, fortune.KindTarot, req, res)
 }
 
 func (h *TarotHandler) drawCards(req tarotDrawReq) (*fortune.Result, error) {

@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -50,13 +51,14 @@ type EntitlementHandler struct {
 }
 
 type EntitlementResponse struct {
-	EffectiveTier   string          `json:"effectiveTier"`
-	TierName        string          `json:"tierName"`
-	ExpiresAt       *time.Time      `json:"expiresAt"`
-	DailyQuota      int             `json:"dailyQuota"`
-	Features        []string        `json:"features"`
-	AvailableModels []ai.ModelEntry `json:"availableModels"`
-	FellBackToFree  bool            `json:"fellBackToFree"`
+	EffectiveTier         string          `json:"effectiveTier"`
+	TierName              string          `json:"tierName"`
+	ExpiresAt             *time.Time      `json:"expiresAt"`
+	DailyQuota            int             `json:"dailyQuota"`
+	DailyCostBudgetMicros int64           `json:"dailyCostBudgetMicros"`
+	Features              []string        `json:"features"`
+	AvailableModels       []ai.ModelEntry `json:"availableModels"`
+	FellBackToFree        bool            `json:"fellBackToFree"`
 }
 
 func (h *EntitlementHandler) Get(c *gin.Context) {
@@ -85,13 +87,14 @@ func (h *EntitlementHandler) Get(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, EntitlementResponse{
-		EffectiveTier:   ent.Tier.Code,
-		TierName:        ent.Tier.Name,
-		ExpiresAt:       ent.ExpiresAt,
-		DailyQuota:      ent.Tier.DailyQuota,
-		Features:        features,
-		AvailableModels: models,
-		FellBackToFree:  ent.FellBackToFree,
+		EffectiveTier:         ent.Tier.Code,
+		TierName:              ent.Tier.Name,
+		ExpiresAt:             ent.ExpiresAt,
+		DailyQuota:            ent.Tier.DailyQuota,
+		DailyCostBudgetMicros: ent.Tier.DailyCostBudgetMicros,
+		Features:              features,
+		AvailableModels:       models,
+		FellBackToFree:        ent.FellBackToFree,
 	})
 }
 
@@ -146,9 +149,18 @@ func authorizeAIRequest(c *gin.Context, db *gorm.DB, gateway ai.Gateway, request
 		c.JSON(http.StatusBadRequest, gin.H{"error": "idempotency key is too long"})
 		return "", false
 	}
-	if err := ReserveAIRequest(db, userID, ent.Tier.DailyQuota, idempotencyKey); err != nil {
+	requestIDValue, _ := c.Get("requestID")
+	requestID := strings.TrimSpace(fmt.Sprint(requestIDValue))
+	costReserve, err := requestCostReserve(db, selected, ent.Tier.DailyCostBudgetMicros, time.Now())
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "AI cost policy is not configured for this model"})
+		return "", false
+	}
+	if err := ReserveAIRequestWithCost(db, userID, ent.Tier.DailyQuota, idempotencyKey, requestID, ent.Tier.DailyCostBudgetMicros, costReserve); err != nil {
 		if errors.Is(err, ErrQuotaExceeded) {
 			c.JSON(http.StatusTooManyRequests, gin.H{"error": "daily quota exceeded"})
+		} else if errors.Is(err, ErrCostBudgetExceeded) {
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "daily AI cost budget exceeded"})
 		} else if errors.Is(err, ErrDuplicateAIRequest) {
 			c.JSON(http.StatusConflict, gin.H{"error": "duplicate AI request"})
 		} else {
@@ -159,5 +171,27 @@ func authorizeAIRequest(c *gin.Context, db *gorm.DB, gateway ai.Gateway, request
 	if idempotencyKey != "" {
 		c.Header("Idempotency-Key", idempotencyKey)
 	}
+	feature := strings.TrimSuffix(strings.TrimPrefix(c.FullPath(), "/api/"), "/interpret")
+	metadata := ai.UsageMetadata{UserID: userID, RequestID: requestID, IdempotencyKey: idempotencyKey, Feature: feature}
+	c.Request = c.Request.WithContext(ai.WithUsageMetadata(c.Request.Context(), metadata))
 	return selected, true
+}
+
+func requestCostReserve(db *gorm.DB, modelID string, budget int64, now time.Time) (int64, error) {
+	if budget < 0 {
+		return 0, nil
+	}
+	var provider model.AIProvider
+	if err := db.Where("is_default = ? AND is_enabled = ?", true, true).First(&provider).Error; err != nil {
+		return 0, err
+	}
+	var price model.AIModelPriceVersion
+	if err := db.Where("provider_id = ? AND model = ? AND effective_from <= ?", provider.ID, modelID, now).
+		Order("effective_from DESC, id DESC").First(&price).Error; err != nil {
+		return 0, err
+	}
+	if price.RequestReserveMicros <= 0 {
+		return 0, ErrCostPolicyUnavailable
+	}
+	return price.RequestReserveMicros, nil
 }

@@ -74,7 +74,7 @@ func (h *CompatibilityHandler) Compute(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, res)
+	writeComputedResult(c, h.DB, fortune.KindCompatibility, req, res)
 }
 
 func (h *CompatibilityHandler) computeChart(req compatibilityComputeReq) (*fortune.Result, error) {

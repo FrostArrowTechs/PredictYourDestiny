@@ -65,7 +65,7 @@ func (h *NameHandler) Compute(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, res)
+	writeComputedResult(c, h.DB, fortune.KindName, req, res)
 }
 
 // Interpret computes the Five格 then asks AI for a reading.
@@ -154,7 +154,7 @@ func (h *NameHandler) resolveModel(requested string, spec *fortune.PromptSpec) s
 }
 
 func (h *NameHandler) interpretSync(c *gin.Context, model string, msgs []ai.Message, opts ai.Options) {
-	ctx := context.Background()
+	ctx := c.Request.Context()
 	resp, err := h.Gateway.Chat(ctx, model, msgs, opts)
 	if err != nil {
 		c.JSON(mapGenericAIError(err), gin.H{"error": err.Error()})

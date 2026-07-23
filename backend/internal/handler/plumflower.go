@@ -63,7 +63,7 @@ func (h *PlumFlowerHandler) Compute(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, res)
+	writeComputedResult(c, h.DB, fortune.KindPlumFlower, req, res)
 }
 
 func (h *PlumFlowerHandler) Interpret(c *gin.Context) {

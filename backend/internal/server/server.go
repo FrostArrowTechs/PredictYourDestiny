@@ -55,7 +55,7 @@ func New(deps Deps) *gin.Engine {
 		AllowOrigins:     allowedOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Accept", "Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID"},
-		ExposeHeaders:    []string{"X-Request-ID"},
+		ExposeHeaders:    []string{"X-Request-ID", "X-Fortune-Record-ID"},
 		AllowCredentials: false,
 		MaxAge:           12 * time.Hour,
 	}))
@@ -72,12 +72,14 @@ func New(deps Deps) *gin.Engine {
 	health := &handler.HealthHandler{DB: deps.DB}
 	settings := &handler.SettingHandler{Settings: deps.Settings}
 	authH := &handler.AuthHandler{DB: deps.DB}
+	account := &handler.AccountHandler{DB: deps.DB}
 	record := &handler.RecordHandler{DB: deps.DB}
 	quota := &handler.QuotaHandler{DB: deps.DB}
 	entitlements := &handler.EntitlementHandler{DB: deps.DB, Gateway: deps.Gateway}
 	adminUser := &handler.AdminUserHandler{DB: deps.DB}
 	adminProvider := &handler.AdminProviderHandler{DB: deps.DB, Cipher: deps.SecretCipher}
 	adminTier := &handler.AdminTierHandler{DB: deps.DB}
+	adminUsage := &handler.AdminAIUsageHandler{DB: deps.DB}
 	bazi := &handler.BaziHandler{Gateway: deps.Gateway, DB: deps.DB}
 	dream := &handler.DreamHandler{Gateway: deps.Gateway, DB: deps.DB}
 	huangli := &handler.HuangliHandler{Gateway: deps.Gateway, DB: deps.DB}
@@ -101,23 +103,25 @@ func New(deps Deps) *gin.Engine {
 		// Auth endpoints (public)
 		api.POST("/auth/register", authRateLimit, authH.Register)
 		api.POST("/auth/login", authRateLimit, authH.Login)
-		api.GET("/auth/me", auth.AuthRequired(), authH.Me)
+		api.GET("/auth/me", auth.AuthRequired(deps.DB), authH.Me)
+		api.GET("/account/export", auth.AuthRequired(deps.DB), account.Export)
+		api.DELETE("/account", auth.AuthRequired(deps.DB), account.Delete)
 
 		// User data endpoints (require auth)
-		api.GET("/records", auth.AuthRequired(), record.List)
-		api.POST("/records", auth.AuthRequired(), record.Create)
-		api.GET("/records/:id", auth.AuthRequired(), record.Get)
-		api.DELETE("/records/:id", auth.AuthRequired(), record.Delete)
-		api.GET("/quota", auth.AuthRequired(), quota.Get)
-		api.GET("/entitlements", auth.AuthRequired(), entitlements.Get)
+		api.GET("/records", auth.AuthRequired(deps.DB), record.List)
+		api.DELETE("/records", auth.AuthRequired(deps.DB), account.ClearHistory)
+		api.GET("/records/:id", auth.AuthRequired(deps.DB), record.Get)
+		api.DELETE("/records/:id", auth.AuthRequired(deps.DB), record.Delete)
+		api.GET("/quota", auth.AuthRequired(deps.DB), quota.Get)
+		api.GET("/entitlements", auth.AuthRequired(deps.DB), entitlements.Get)
 
 		// Dynamic config (admin-only).
-		api.GET("/settings", auth.AdminRequired(), settings.List)
-		api.PUT("/settings", auth.AdminRequired(), settings.Update)
-		api.POST("/settings/reload", auth.AdminRequired(), settings.Reload)
+		api.GET("/settings", auth.AdminRequired(deps.DB), settings.List)
+		api.PUT("/settings", auth.AdminRequired(deps.DB), settings.Update)
+		api.POST("/settings/reload", auth.AdminRequired(deps.DB), settings.Reload)
 
 		// Admin endpoints (require admin role)
-		admin := api.Group("/admin", auth.AdminRequired())
+		admin := api.Group("/admin", auth.AdminRequired(deps.DB))
 		{
 			// User management
 			admin.GET("/users", adminUser.ListUsers)
@@ -138,61 +142,66 @@ func New(deps Deps) *gin.Engine {
 			admin.POST("/tiers", adminTier.CreateTier)
 			admin.PUT("/tiers/:id", adminTier.UpdateTier)
 			admin.DELETE("/tiers/:id", adminTier.DeleteTier)
+
+			// Immutable AI prices and cost observability.
+			admin.GET("/ai/prices", adminUsage.ListPrices)
+			admin.POST("/ai/prices", adminUsage.CreatePrice)
+			admin.GET("/ai/usage/summary", adminUsage.UsageSummary)
 		}
 
 		// Bazi (stage 1): chart compute is anonymous/free; AI
 		// interpret hits the gateway. Auth + quota gating in stage 4.
-		api.POST("/bazi/compute", bazi.Compute)
-		api.POST("/bazi/interpret", auth.AuthRequired(), aiRateLimit, bazi.Interpret)
+		api.POST("/bazi/compute", auth.OptionalAuth(deps.DB), bazi.Compute)
+		api.POST("/bazi/interpret", auth.AuthRequired(deps.DB), aiRateLimit, bazi.Interpret)
 
 		// Dream (stage 2): keyword search + AI interpretation.
-		api.POST("/dream/compute", dream.Compute)
-		api.POST("/dream/interpret", auth.AuthRequired(), aiRateLimit, dream.Interpret)
+		api.POST("/dream/compute", auth.OptionalAuth(deps.DB), dream.Compute)
+		api.POST("/dream/interpret", auth.AuthRequired(deps.DB), aiRateLimit, dream.Interpret)
 
 		// Huangli (stage 2): calendar data + AI advice.
-		api.POST("/huangli/compute", huangli.Compute)
-		api.POST("/huangli/interpret", auth.AuthRequired(), aiRateLimit, huangli.Interpret)
+		api.POST("/huangli/compute", auth.OptionalAuth(deps.DB), huangli.Compute)
+		api.POST("/huangli/interpret", auth.AuthRequired(deps.DB), aiRateLimit, huangli.Interpret)
 
 		// Zodiac (stage 2): fortune calculation + AI interpretation.
-		api.POST("/zodiac/compute", zodiac.Compute)
-		api.POST("/zodiac/interpret", auth.AuthRequired(), aiRateLimit, zodiac.Interpret)
+		api.POST("/zodiac/compute", auth.OptionalAuth(deps.DB), zodiac.Compute)
+		api.POST("/zodiac/interpret", auth.AuthRequired(deps.DB), aiRateLimit, zodiac.Interpret)
 
 		// Compatibility (stage 2): match analysis + AI interpretation.
-		api.POST("/compatibility/compute", compatibility.Compute)
-		api.POST("/compatibility/interpret", auth.AuthRequired(), aiRateLimit, compatibility.Interpret)
+		api.POST("/compatibility/compute", auth.OptionalAuth(deps.DB), compatibility.Compute)
+		api.POST("/compatibility/interpret", auth.AuthRequired(deps.DB), aiRateLimit, compatibility.Interpret)
 
 		// Weighbone (stage 3 batch 1): bone weight fortune.
-		api.POST("/weighbone/compute", weighbone.Compute)
-		api.POST("/weighbone/interpret", auth.AuthRequired(), aiRateLimit, weighbone.Interpret)
+		api.POST("/weighbone/compute", auth.OptionalAuth(deps.DB), weighbone.Compute)
+		api.POST("/weighbone/interpret", auth.AuthRequired(deps.DB), aiRateLimit, weighbone.Interpret)
 
 		// Divination (stage 3 batch 1): draw divination stick + interpret.
-		api.POST("/divination/compute", divination.Compute)
-		api.POST("/divination/interpret", auth.AuthRequired(), aiRateLimit, divination.Interpret)
+		api.POST("/divination/compute", auth.OptionalAuth(deps.DB), divination.Compute)
+		api.POST("/divination/interpret", auth.AuthRequired(deps.DB), aiRateLimit, divination.Interpret)
 
 		// Plum flower (stage 3 batch 1): hexagram divination.
-		api.POST("/plumflower/compute", plumflower.Compute)
-		api.POST("/plumflower/interpret", auth.AuthRequired(), aiRateLimit, plumflower.Interpret)
+		api.POST("/plumflower/compute", auth.OptionalAuth(deps.DB), plumflower.Compute)
+		api.POST("/plumflower/interpret", auth.AuthRequired(deps.DB), aiRateLimit, plumflower.Interpret)
 
 		// Name (stage 3 batch 2): Five格 name analysis.
-		api.POST("/name/compute", name.Compute)
-		api.POST("/name/interpret", auth.AuthRequired(), aiRateLimit, name.Interpret)
+		api.POST("/name/compute", auth.OptionalAuth(deps.DB), name.Compute)
+		api.POST("/name/interpret", auth.AuthRequired(deps.DB), aiRateLimit, name.Interpret)
 
 		// Astrology (stage 3 batch 2): Western natal chart.
-		api.POST("/astrology/compute", astrology.Compute)
-		api.POST("/astrology/interpret", auth.AuthRequired(), aiRateLimit, astrology.Interpret)
+		api.POST("/astrology/compute", auth.OptionalAuth(deps.DB), astrology.Compute)
+		api.POST("/astrology/interpret", auth.AuthRequired(deps.DB), aiRateLimit, astrology.Interpret)
 
 		// Constellation (stage 3 batch 3): sun-sign daily fortune.
-		api.POST("/constellation/compute", constellation.Compute)
-		api.POST("/constellation/interpret", auth.AuthRequired(), aiRateLimit, constellation.Interpret)
+		api.POST("/constellation/compute", auth.OptionalAuth(deps.DB), constellation.Compute)
+		api.POST("/constellation/interpret", auth.AuthRequired(deps.DB), aiRateLimit, constellation.Interpret)
 
 		// Tarot (stage 3 batch 3): card draw + spread interpretation.
-		api.POST("/tarot/draw", tarot.Draw)
-		api.POST("/tarot/compute", tarot.Draw)
-		api.POST("/tarot/interpret", auth.AuthRequired(), aiRateLimit, tarot.Interpret)
+		api.POST("/tarot/draw", auth.OptionalAuth(deps.DB), tarot.Draw)
+		api.POST("/tarot/compute", auth.OptionalAuth(deps.DB), tarot.Draw)
+		api.POST("/tarot/interpret", auth.AuthRequired(deps.DB), aiRateLimit, tarot.Interpret)
 
 		// Ziwei (stage 3 batch 3): 紫微斗数 natal chart.
-		api.POST("/ziwei/compute", ziwei.Compute)
-		api.POST("/ziwei/interpret", auth.AuthRequired(), aiRateLimit, ziwei.Interpret)
+		api.POST("/ziwei/compute", auth.OptionalAuth(deps.DB), ziwei.Compute)
+		api.POST("/ziwei/interpret", auth.AuthRequired(deps.DB), aiRateLimit, ziwei.Interpret)
 	}
 
 	// Anything under /api/* that isn't matched returns a JSON 404.

@@ -33,6 +33,7 @@ import (
 	"predictdestiny/internal/ai"
 	"predictdestiny/internal/auth"
 	"predictdestiny/internal/config"
+	"predictdestiny/internal/handler"
 	"predictdestiny/internal/model"
 	"predictdestiny/internal/secret"
 	"predictdestiny/internal/server"
@@ -93,10 +94,20 @@ func main() {
 		&model.AIProvider{},
 		&model.MembershipTier{},
 		&model.UserMembership{},
+		&model.NameAnalysis{},
+		&model.AIModelPriceVersion{},
+		&model.AIUsageLedger{},
+		&model.AIDailyCostUsage{},
+		&model.AICostReservation{},
 	); err != nil {
 		log.Fatalf("automigrate: %v", err)
 	}
 	log.Println("database ready, schema migrated")
+	if err := handler.PurgeExpiredUserData(db, time.Now(), cfg.HistoryRetentionDays, cfg.ReservationRetentionDays); err != nil {
+		log.Printf("warn: purge expired user data: %v", err)
+	} else {
+		log.Printf("user-data retention applied (history=%d days, reservations=%d days)", cfg.HistoryRetentionDays, cfg.ReservationRetentionDays)
+	}
 
 	// 3.5) seed dream entries (idempotent)
 	if err := seedDreamEntries(db); err != nil {
@@ -146,7 +157,7 @@ func main() {
 
 	// Runtime AI traffic reads only the enabled default provider. Admin changes
 	// become visible on the next request without restarting the service.
-	gateway := ai.NewOpenAIGateway(store.NewProviderStore(db, secretCipher))
+	gateway := ai.NewMeteredGateway(db, ai.NewOpenAIGateway(store.NewProviderStore(db, secretCipher)))
 
 	// Touch lunar-go so an import error surfaces here, not deep in a
 	// request. (Real usage begins in stage 1 / bazi.)

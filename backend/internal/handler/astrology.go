@@ -92,7 +92,7 @@ func (h *AstrologyHandler) Compute(c *gin.Context) {
 		writeBirthComputeError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, res)
+	writeComputedResult(c, h.DB, fortune.KindAstrology, req, res)
 }
 
 // Interpret returns AI interpretation of the natal chart.
@@ -174,7 +174,7 @@ func (h *AstrologyHandler) resolveModel(requested string, spec *fortune.PromptSp
 }
 
 func (h *AstrologyHandler) interpretSync(c *gin.Context, model string, msgs []ai.Message, opts ai.Options) {
-	ctx := context.Background()
+	ctx := c.Request.Context()
 	resp, err := h.Gateway.Chat(ctx, model, msgs, opts)
 	if err != nil {
 		c.JSON(mapGenericAIError(err), gin.H{"error": err.Error()})

@@ -102,7 +102,7 @@ func (h *BaziHandler) Compute(c *gin.Context) {
 		writeBirthComputeError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, res)
+	writeComputedResult(c, h.DB, fortune.KindBazi, req, res)
 }
 
 // computeChart is shared by Compute and Interpret: it parses the

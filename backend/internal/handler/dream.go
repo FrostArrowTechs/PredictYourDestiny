@@ -57,7 +57,7 @@ func (h *DreamHandler) Compute(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, res)
+	writeComputedResult(c, h.DB, fortune.KindDream, req, res)
 }
 
 // computeChart runs the dream engine with the DB dependency.

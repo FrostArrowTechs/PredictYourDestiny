@@ -22,6 +22,7 @@ const ZiweiPage = lazy(() => import('./pages/ziwei/ZiweiPage'))
 const LoginPage = lazy(() => import('./pages/auth/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/auth/RegisterPage'))
 const AccountPage = lazy(() => import('./pages/account/AccountPage'))
+const LegalPage = lazy(() => import('./pages/legal/LegalPage'))
 
 export default function App() {
   return (
@@ -50,6 +51,9 @@ export default function App() {
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
               <Route path="/account" element={<AccountPage />} />
+              <Route path="/privacy" element={<LegalPage kind="privacy" />} />
+              <Route path="/terms" element={<LegalPage kind="terms" />} />
+              <Route path="/disclaimer" element={<LegalPage kind="disclaimer" />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>

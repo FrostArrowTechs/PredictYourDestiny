@@ -30,6 +30,7 @@ interface Tier {
   code: string
   name: string
   dailyQuota: number
+  dailyCostBudgetMicros: number
   features: string
   priceMonth: number
   sortOrder: number
@@ -46,6 +47,7 @@ export default function TiersPage() {
     code: '',
     name: '',
     dailyQuota: 5,
+    dailyCostBudgetUsd: -1,
     priceYuan: 0,
     isEnabled: true,
   })
@@ -72,6 +74,7 @@ export default function TiersPage() {
     const body: Record<string, unknown> = {
       name: form.name,
       dailyQuota: form.dailyQuota,
+      dailyCostBudgetMicros: form.dailyCostBudgetUsd < 0 ? -1 : Math.round(form.dailyCostBudgetUsd * 1_000_000),
       priceMonth: Math.round(form.priceYuan * 100),
       isEnabled: form.isEnabled,
     }
@@ -84,7 +87,7 @@ export default function TiersPage() {
 
     setShowModal(false)
     setEditingTier(null)
-    setForm({ code: '', name: '', dailyQuota: 5, priceYuan: 0, isEnabled: true })
+    setForm({ code: '', name: '', dailyQuota: 5, dailyCostBudgetUsd: -1, priceYuan: 0, isEnabled: true })
     loadTiers()
   }
 
@@ -104,7 +107,7 @@ export default function TiersPage() {
 
   const openCreate = () => {
     setEditingTier(null)
-    setForm({ code: '', name: '', dailyQuota: 5, priceYuan: 0, isEnabled: true })
+    setForm({ code: '', name: '', dailyQuota: 5, dailyCostBudgetUsd: -1, priceYuan: 0, isEnabled: true })
     setShowModal(true)
   }
 
@@ -114,6 +117,7 @@ export default function TiersPage() {
       code: tier.code,
       name: tier.name,
       dailyQuota: tier.dailyQuota,
+      dailyCostBudgetUsd: tier.dailyCostBudgetMicros < 0 ? -1 : tier.dailyCostBudgetMicros / 1_000_000,
       priceYuan: tier.priceMonth / 100,
       isEnabled: tier.isEnabled,
     })
@@ -145,6 +149,7 @@ export default function TiersPage() {
                 <TableHead>{t('tiers.code')}</TableHead>
                 <TableHead>{t('tiers.name')}</TableHead>
                 <TableHead>{t('tiers.dailyQuota')}</TableHead>
+                <TableHead>每日成本预算</TableHead>
                 <TableHead>{t('tiers.priceMonth')}</TableHead>
                 <TableHead>状态</TableHead>
                 <TableHead className="text-right">{t('tiers.actions')}</TableHead>
@@ -158,6 +163,7 @@ export default function TiersPage() {
                       {tier.code}
                     </code>
                   </TableCell>
+                  <TableCell>{tier.dailyCostBudgetMicros < 0 ? <Badge variant="secondary">未启用</Badge> : `$${(tier.dailyCostBudgetMicros / 1_000_000).toFixed(4)}`}</TableCell>
                   <TableCell className="font-medium text-slate-900">{tier.name}</TableCell>
                   <TableCell>
                     {tier.dailyQuota === -1 ? (
@@ -228,6 +234,12 @@ export default function TiersPage() {
                 />
               </div>
             )}
+            <div className="space-y-1.5">
+              <Label htmlFor="tcost">每日 AI 成本预算 (USD)</Label>
+              <Input id="tcost" type="number" min="-1" step="0.000001" value={form.dailyCostBudgetUsd}
+                onChange={e => setForm({ ...form, dailyCostBudgetUsd: Number(e.target.value) })} />
+              <p className="text-xs text-slate-500">填 -1 表示暂不执行成本预算；启用前应先为模型配置单请求预留额</p>
+            </div>
             <div className="space-y-1.5">
               <Label htmlFor="tname">名称</Label>
               <Input

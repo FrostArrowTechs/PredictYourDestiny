@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -29,14 +30,16 @@ import (
 
 // Bootstrap holds the startup-only configuration.
 type Bootstrap struct {
-	DatabaseURL             string          // PostgreSQL DSN, required
-	DatabaseConfig          *pgx.ConnConfig // parsed connection config used by PostgreSQL clients
-	ServerAddr              string          // HTTP listen address, e.g. ":8080"
-	JWTSecret               string          // JWT signing secret, required for auth
-	AIProviderEncryptionKey string          // base64-encoded 32-byte AES key
-	Environment             string          // development | production
-	CORSAllowedOrigins      []string        // exact browser origins allowed by the API
-	LogLevel                string          // debug | info | warn | error
+	DatabaseURL              string          // PostgreSQL DSN, required
+	DatabaseConfig           *pgx.ConnConfig // parsed connection config used by PostgreSQL clients
+	ServerAddr               string          // HTTP listen address, e.g. ":8080"
+	JWTSecret                string          // JWT signing secret, required for auth
+	AIProviderEncryptionKey  string          // base64-encoded 32-byte AES key
+	Environment              string          // development | production
+	CORSAllowedOrigins       []string        // exact browser origins allowed by the API
+	LogLevel                 string          // debug | info | warn | error
+	HistoryRetentionDays     int             // generated records/chats; 0 disables automatic purge
+	ReservationRetentionDays int             // AI idempotency rows; 0 disables automatic purge
 }
 
 // Load reads the .env file (if present) and environment variables,
@@ -54,13 +57,15 @@ func Load() (*Bootstrap, error) {
 	_ = godotenv.Load(".env", ".env.local")
 
 	cfg := &Bootstrap{
-		DatabaseURL:             getenv("DATABASE_URL", ""),
-		ServerAddr:              getenv("SERVER_ADDR", ":8080"),
-		JWTSecret:               getenv("JWT_SECRET", ""),
-		AIProviderEncryptionKey: getenv("AI_PROVIDER_ENCRYPTION_KEY", ""),
-		Environment:             strings.ToLower(getenv("APP_ENV", "development")),
-		CORSAllowedOrigins:      splitCSV(getenv("CORS_ALLOWED_ORIGINS", "")),
-		LogLevel:                strings.ToLower(getenv("LOG_LEVEL", "info")),
+		DatabaseURL:              getenv("DATABASE_URL", ""),
+		ServerAddr:               getenv("SERVER_ADDR", ":8080"),
+		JWTSecret:                getenv("JWT_SECRET", ""),
+		AIProviderEncryptionKey:  getenv("AI_PROVIDER_ENCRYPTION_KEY", ""),
+		Environment:              strings.ToLower(getenv("APP_ENV", "development")),
+		CORSAllowedOrigins:       splitCSV(getenv("CORS_ALLOWED_ORIGINS", "")),
+		LogLevel:                 strings.ToLower(getenv("LOG_LEVEL", "info")),
+		HistoryRetentionDays:     getenvInt("HISTORY_RETENTION_DAYS", 365),
+		ReservationRetentionDays: getenvInt("AI_RESERVATION_RETENTION_DAYS", 30),
 	}
 
 	if strings.TrimSpace(cfg.DatabaseURL) == "" {
@@ -204,6 +209,18 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func getenvInt(key string, fallback int) int {
+	value := getenv(key, "")
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 0 {
+		return fallback
+	}
+	return parsed
 }
 
 func splitCSV(value string) []string {

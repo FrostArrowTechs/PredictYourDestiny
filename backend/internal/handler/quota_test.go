@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -128,5 +129,72 @@ func TestReserveAIRequestRollsBackKeyWhenQuotaExceeded(t *testing.T) {
 	}
 	if err := ReserveAIRequest(db, 100, 1, "retry-after-upgrade"); err != nil {
 		t.Fatalf("rolled-back key could not be retried: %v", err)
+	}
+}
+
+func TestReserveAIRequestWithCostIsAtomicAndBounded(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:cost_reservation?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.UsageQuota{}, &model.AIRequestReservation{}, &model.AIDailyCostUsage{}, &model.AICostReservation{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ReserveAIRequestWithCost(db, 8, 10, "one", "request-one", 100, 60); err != nil {
+		t.Fatal(err)
+	}
+	if err := ReserveAIRequestWithCost(db, 8, 10, "two", "request-two", 100, 60); !errors.Is(err, ErrCostBudgetExceeded) {
+		t.Fatalf("second reservation error = %v", err)
+	}
+	var quota model.UsageQuota
+	db.Where("user_id = ?", 8).First(&quota)
+	if quota.Count != 1 {
+		t.Fatalf("rolled-back request count = %d, want 1", quota.Count)
+	}
+	var idempotencyRows int64
+	db.Model(&model.AIRequestReservation{}).Where("user_id = ?", 8).Count(&idempotencyRows)
+	if idempotencyRows != 1 {
+		t.Fatalf("idempotency rows = %d, want 1", idempotencyRows)
+	}
+	var daily model.AIDailyCostUsage
+	db.Where("user_id = ?", 8).First(&daily)
+	if daily.ReservedMicros != 60 || daily.SpentMicros != 0 {
+		t.Fatalf("daily cost = %+v", daily)
+	}
+}
+
+func TestReserveAIRequestWithCostConcurrentBudget(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:cost_reservation_concurrent?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, _ := db.DB()
+	sqlDB.SetMaxOpenConns(1)
+	if err := db.AutoMigrate(&model.UsageQuota{}, &model.AIRequestReservation{}, &model.AIDailyCostUsage{}, &model.AICostReservation{}); err != nil {
+		t.Fatal(err)
+	}
+	const requests = 20
+	results := make(chan error, requests)
+	var wg sync.WaitGroup
+	for i := 0; i < requests; i++ {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			key := fmt.Sprintf("cost-%d", index)
+			results <- ReserveAIRequestWithCost(db, 9, 100, key, "request-"+key, 100, 30)
+		}(i)
+	}
+	wg.Wait()
+	close(results)
+	successes := 0
+	for err := range results {
+		if err == nil {
+			successes++
+		} else if !errors.Is(err, ErrCostBudgetExceeded) {
+			t.Fatalf("unexpected reservation error: %v", err)
+		}
+	}
+	if successes != 3 {
+		t.Fatalf("successful cost reservations = %d, want 3", successes)
 	}
 }

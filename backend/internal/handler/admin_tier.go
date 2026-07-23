@@ -17,14 +17,15 @@ type AdminTierHandler struct {
 
 // TierPayload is the API response for a tier.
 type TierPayload struct {
-	ID         uint   `json:"id"`
-	Code       string `json:"code"`
-	Name       string `json:"name"`
-	DailyQuota int    `json:"dailyQuota"`
-	Features   string `json:"features"`
-	IsEnabled  bool   `json:"isEnabled"`
-	PriceMonth int    `json:"priceMonth"`
-	SortOrder  int    `json:"sortOrder"`
+	ID                    uint   `json:"id"`
+	Code                  string `json:"code"`
+	Name                  string `json:"name"`
+	DailyQuota            int    `json:"dailyQuota"`
+	DailyCostBudgetMicros int64  `json:"dailyCostBudgetMicros"`
+	Features              string `json:"features"`
+	IsEnabled             bool   `json:"isEnabled"`
+	PriceMonth            int    `json:"priceMonth"`
+	SortOrder             int    `json:"sortOrder"`
 }
 
 // ListTiers returns all membership tiers.
@@ -38,14 +39,15 @@ func (h *AdminTierHandler) ListTiers(c *gin.Context) {
 	payload := make([]TierPayload, len(tiers))
 	for i, t := range tiers {
 		payload[i] = TierPayload{
-			ID:         t.ID,
-			Code:       t.Code,
-			Name:       t.Name,
-			DailyQuota: t.DailyQuota,
-			Features:   t.Features,
-			IsEnabled:  t.IsEnabled,
-			PriceMonth: t.PriceMonth,
-			SortOrder:  t.SortOrder,
+			ID:                    t.ID,
+			Code:                  t.Code,
+			Name:                  t.Name,
+			DailyQuota:            t.DailyQuota,
+			DailyCostBudgetMicros: t.DailyCostBudgetMicros,
+			Features:              t.Features,
+			IsEnabled:             t.IsEnabled,
+			PriceMonth:            t.PriceMonth,
+			SortOrder:             t.SortOrder,
 		}
 	}
 
@@ -54,13 +56,14 @@ func (h *AdminTierHandler) ListTiers(c *gin.Context) {
 
 // CreateTierRequest is the payload for POST /api/admin/tiers.
 type CreateTierRequest struct {
-	Code       string `json:"code" binding:"required"`
-	Name       string `json:"name" binding:"required"`
-	DailyQuota int    `json:"dailyQuota"`
-	Features   string `json:"features"`
-	IsEnabled  *bool  `json:"isEnabled"`
-	PriceMonth int    `json:"priceMonth"`
-	SortOrder  int    `json:"sortOrder"`
+	Code                  string `json:"code" binding:"required"`
+	Name                  string `json:"name" binding:"required"`
+	DailyQuota            int    `json:"dailyQuota"`
+	DailyCostBudgetMicros *int64 `json:"dailyCostBudgetMicros"`
+	Features              string `json:"features"`
+	IsEnabled             *bool  `json:"isEnabled"`
+	PriceMonth            int    `json:"priceMonth"`
+	SortOrder             int    `json:"sortOrder"`
 }
 
 // CreateTier creates a new membership tier.
@@ -94,6 +97,15 @@ func (h *AdminTierHandler) CreateTier(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "the free tier must remain enabled"})
 		return
 	}
+	dailyCostBudget := int64(-1)
+	if req.DailyCostBudgetMicros != nil {
+		dailyCostBudget = *req.DailyCostBudgetMicros
+	}
+	if dailyCostBudget < -1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "daily cost budget must be -1 or non-negative"})
+		return
+	}
+	tier.DailyCostBudgetMicros = dailyCostBudget
 
 	if err := h.DB.Create(&tier).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create tier"})
@@ -101,25 +113,27 @@ func (h *AdminTierHandler) CreateTier(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, TierPayload{
-		ID:         tier.ID,
-		Code:       tier.Code,
-		Name:       tier.Name,
-		DailyQuota: tier.DailyQuota,
-		Features:   tier.Features,
-		IsEnabled:  tier.IsEnabled,
-		PriceMonth: tier.PriceMonth,
-		SortOrder:  tier.SortOrder,
+		ID:                    tier.ID,
+		Code:                  tier.Code,
+		Name:                  tier.Name,
+		DailyQuota:            tier.DailyQuota,
+		DailyCostBudgetMicros: tier.DailyCostBudgetMicros,
+		Features:              tier.Features,
+		IsEnabled:             tier.IsEnabled,
+		PriceMonth:            tier.PriceMonth,
+		SortOrder:             tier.SortOrder,
 	})
 }
 
 // UpdateTierRequest is the payload for PUT /api/admin/tiers/:id.
 type UpdateTierRequest struct {
-	Name       string `json:"name"`
-	DailyQuota *int   `json:"dailyQuota"`
-	Features   string `json:"features"`
-	IsEnabled  *bool  `json:"isEnabled"`
-	PriceMonth *int   `json:"priceMonth"`
-	SortOrder  *int   `json:"sortOrder"`
+	Name                  string `json:"name"`
+	DailyQuota            *int   `json:"dailyQuota"`
+	DailyCostBudgetMicros *int64 `json:"dailyCostBudgetMicros"`
+	Features              string `json:"features"`
+	IsEnabled             *bool  `json:"isEnabled"`
+	PriceMonth            *int   `json:"priceMonth"`
+	SortOrder             *int   `json:"sortOrder"`
 }
 
 // UpdateTier updates an existing membership tier.
@@ -149,6 +163,13 @@ func (h *AdminTierHandler) UpdateTier(c *gin.Context) {
 	if req.DailyQuota != nil {
 		tier.DailyQuota = *req.DailyQuota
 	}
+	if req.DailyCostBudgetMicros != nil {
+		if *req.DailyCostBudgetMicros < -1 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "daily cost budget must be -1 or non-negative"})
+			return
+		}
+		tier.DailyCostBudgetMicros = *req.DailyCostBudgetMicros
+	}
 	if req.Features != "" {
 		tier.Features = req.Features
 	}
@@ -172,14 +193,15 @@ func (h *AdminTierHandler) UpdateTier(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, TierPayload{
-		ID:         tier.ID,
-		Code:       tier.Code,
-		Name:       tier.Name,
-		DailyQuota: tier.DailyQuota,
-		Features:   tier.Features,
-		IsEnabled:  tier.IsEnabled,
-		PriceMonth: tier.PriceMonth,
-		SortOrder:  tier.SortOrder,
+		ID:                    tier.ID,
+		Code:                  tier.Code,
+		Name:                  tier.Name,
+		DailyQuota:            tier.DailyQuota,
+		DailyCostBudgetMicros: tier.DailyCostBudgetMicros,
+		Features:              tier.Features,
+		IsEnabled:             tier.IsEnabled,
+		PriceMonth:            tier.PriceMonth,
+		SortOrder:             tier.SortOrder,
 	})
 }
 

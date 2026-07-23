@@ -58,7 +58,7 @@ func (h *ZodiacHandler) Compute(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, res)
+	writeComputedResult(c, h.DB, fortune.KindZodiac, req, res)
 }
 
 func (h *ZodiacHandler) computeChart(req zodiacComputeReq) (*fortune.Result, error) {

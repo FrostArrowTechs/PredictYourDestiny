@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -16,24 +18,16 @@ type RecordHandler struct {
 	DB *gorm.DB
 }
 
-// CreateRecordRequest is the payload for POST /api/records.
-type CreateRecordRequest struct {
-	Kind       string `json:"kind" binding:"required"`       // bazi|tarot|dream|...
-	Title      string `json:"title"`                         // human label
-	InputJSON  string `json:"inputJson" binding:"required"`  // raw input
-	ResultJSON string `json:"resultJson" binding:"required"` // engine output
-	Note       string `json:"note"`                          // optional user note
-}
-
 // RecordResponse is the API response for a single record.
 type RecordResponse struct {
-	ID         uint   `json:"id"`
-	Kind       string `json:"kind"`
-	Title      string `json:"title"`
-	InputJSON  string `json:"inputJson"`
-	ResultJSON string `json:"resultJson"`
-	Note       string `json:"note"`
-	CreatedAt  string `json:"createdAt"`
+	ID              uint   `json:"id"`
+	Kind            string `json:"kind"`
+	Title           string `json:"title"`
+	InputJSON       string `json:"inputJson"`
+	ResultJSON      string `json:"resultJson"`
+	ServerGenerated bool   `json:"serverGenerated"`
+	Note            string `json:"note"`
+	CreatedAt       string `json:"createdAt"`
 }
 
 // List returns the authenticated user's saved records.
@@ -74,13 +68,14 @@ func (h *RecordHandler) List(c *gin.Context) {
 	res := make([]RecordResponse, len(records))
 	for i, r := range records {
 		res[i] = RecordResponse{
-			ID:         r.ID,
-			Kind:       r.Kind,
-			Title:      r.Title,
-			InputJSON:  r.InputJSON,
-			ResultJSON: r.ResultJSON,
-			Note:       r.Note,
-			CreatedAt:  r.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			ID:              r.ID,
+			Kind:            r.Kind,
+			Title:           r.Title,
+			InputJSON:       r.InputJSON,
+			ResultJSON:      r.ResultJSON,
+			ServerGenerated: r.ServerGenerated,
+			Note:            r.Note,
+			CreatedAt:       r.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		}
 	}
 
@@ -89,45 +84,6 @@ func (h *RecordHandler) List(c *gin.Context) {
 		"total":   total,
 		"page":    page,
 		"limit":   limit,
-	})
-}
-
-// Create saves a new fortune record for the authenticated user.
-func (h *RecordHandler) Create(c *gin.Context) {
-	userID := auth.GetUserID(c)
-	if userID == 0 {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
-		return
-	}
-
-	var req CreateRecordRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	record := model.FortuneRecord{
-		UserID:     userID,
-		Kind:       req.Kind,
-		Title:      req.Title,
-		InputJSON:  req.InputJSON,
-		ResultJSON: req.ResultJSON,
-		Note:       req.Note,
-	}
-
-	if err := h.DB.Create(&record).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save record"})
-		return
-	}
-
-	c.JSON(http.StatusCreated, RecordResponse{
-		ID:         record.ID,
-		Kind:       record.Kind,
-		Title:      record.Title,
-		InputJSON:  record.InputJSON,
-		ResultJSON: record.ResultJSON,
-		Note:       record.Note,
-		CreatedAt:  record.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	})
 }
 
@@ -152,14 +108,42 @@ func (h *RecordHandler) Get(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, RecordResponse{
-		ID:         record.ID,
-		Kind:       record.Kind,
-		Title:      record.Title,
-		InputJSON:  record.InputJSON,
-		ResultJSON: record.ResultJSON,
-		Note:       record.Note,
-		CreatedAt:  record.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		ID:              record.ID,
+		Kind:            record.Kind,
+		Title:           record.Title,
+		InputJSON:       record.InputJSON,
+		ResultJSON:      record.ResultJSON,
+		ServerGenerated: record.ServerGenerated,
+		Note:            record.Note,
+		CreatedAt:       record.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	})
+}
+
+// writeComputedResult persists only the input accepted by a compute handler and
+// the result produced by the server. Anonymous calculations remain ephemeral.
+func writeComputedResult(c *gin.Context, db *gorm.DB, kind string, input, result any) {
+	userID := auth.GetUserID(c)
+	if userID != 0 && auth.HistoryPersistenceEnabled(c) {
+		inputJSON, inputErr := json.Marshal(input)
+		resultJSON, resultErr := json.Marshal(result)
+		if inputErr != nil || resultErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to encode server result"})
+			return
+		}
+		now := time.Now()
+		record := model.FortuneRecord{
+			UserID: userID, Kind: kind,
+			Title:     kind + " · " + now.Format("2006-01-02 15:04"),
+			InputJSON: string(inputJSON), ResultJSON: string(resultJSON),
+			ServerGenerated: true,
+		}
+		if db == nil || db.Create(&record).Error != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "history persistence unavailable"})
+			return
+		}
+		c.Header("X-Fortune-Record-ID", strconv.FormatUint(uint64(record.ID), 10))
+	}
+	c.JSON(http.StatusOK, result)
 }
 
 // Delete removes a record (must belong to the authenticated user).
