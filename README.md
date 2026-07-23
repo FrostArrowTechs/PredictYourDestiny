@@ -95,6 +95,51 @@ Model: qwen3.7-plus
 - Node.js ≥ 20
 - 一个可访问的 PostgreSQL
 
+### 环境变量
+
+后端会按顺序读取操作系统环境变量、`backend/.env` 和 `backend/.env.local`；操作系统环境变量优先。可从示例开始：
+
+```bash
+cd backend
+cp .env.example .env
+```
+
+后端变量：
+
+| 变量 | 必需性与默认值 | 说明 |
+|---|---|---|
+| `DATABASE_URL` | 必需，无默认值 | PostgreSQL DSN，支持 `postgresql://...` URL 或 libpq 关键字格式。未指定数据库名或使用 `postgres` 时，应用改用 `predictdestiny`；首次建库需要连接角色具有 `CREATEDB` 权限。 |
+| `JWT_SECRET` | 认证功能必需 | JWT 签名密钥。生产环境使用足够长的随机值；缺失时服务可以启动，但登录和鉴权不可用。 |
+| `AI_PROVIDER_ENCRYPTION_KEY` | 使用 AI 供应商时必需 | 用于加密数据库内供应商 API Key 的固定 AES-256-GCM 主密钥。使用 `openssl rand -base64 32` 生成，部署后必须稳定保存；丢失后已有密文无法解密。 |
+| `APP_ENV` | 可选，默认 `development` | 设为 `production` 时启用生产安全要求，并强制配置 CORS 白名单。 |
+| `CORS_ALLOWED_ORIGINS` | 生产环境必需 | 允许访问 API 的前台和 Admin Origin，逗号分隔，例如 `https://app.example.com,https://admin.example.com`。只填写 Origin，不包含路径。 |
+| `SERVER_ADDR` | 可选，默认 `:8080` | API 监听地址。 |
+| `LOG_LEVEL` | 可选，默认 `info` | `debug`、`info`、`warn` 或 `error`。 |
+| `HISTORY_RETENTION_DAYS` | 可选，默认 `365` | 服务端历史记录保留天数；设为 `0` 禁用自动清理。 |
+| `AI_RESERVATION_RETENTION_DAYS` | 可选，默认 `30` | AI 幂等及已结算成本预留记录的保留天数；设为 `0` 禁用自动清理。 |
+| `ADMIN_EMAIL` | 首次初始化可选 | 仅在数据库尚无管理员时，与 `ADMIN_PASSWORD` 一起创建首个管理员。已有管理员时不会重置账号。 |
+| `ADMIN_PASSWORD` | 首次初始化可选 | 首个管理员密码，至少 12 个字符。不得提交到 Git；初始化完成后应从运行环境移除。 |
+
+生产环境最小示例（值均为占位符）：
+
+```dotenv
+DATABASE_URL=postgresql://app_user:strong-password@db.example.com:5432/predictdestiny?sslmode=require
+JWT_SECRET=replace-with-a-long-random-secret
+AI_PROVIDER_ENCRYPTION_KEY=replace-with-output-of-openssl-rand-base64-32
+APP_ENV=production
+CORS_ALLOWED_ORIGINS=https://app.example.com,https://admin.example.com
+SERVER_ADDR=:8080
+```
+
+浏览器端变量在执行 Vite 构建时写入静态资源，部署后修改运行环境不会自动改变已经构建的文件：
+
+| 项目 | 变量 | 默认值 | 生产示例 |
+|---|---|---|---|
+| 用户端 | `VITE_API_BASE_URL` | 空；使用同源 `/api` | `https://api.example.com`。客户端会自动追加 `/api`。 |
+| Admin | `VITE_ADMIN_API_BASE_URL` | `/api` | `https://api.example.com/api`。该值必须包含 `/api` 路径。 |
+
+AI 供应商 Base URL、API Key、模型目录、价格版本和会员成本预算不是启动环境变量，应登录 Admin 后保存到数据库。真实 API Key、`.env`、JWT 密钥和供应商加密主密钥都不得提交到 Git。
+
 ### 后端
 
 ```bash
@@ -137,7 +182,7 @@ VITE_API_BASE_URL=https://api.yourdomain.com npm run build
 
 # 管理端
 cd admin
-VITE_ADMIN_API_BASE_URL=https://api.yourdomain.com npm run build
+VITE_ADMIN_API_BASE_URL=https://api.yourdomain.com/api npm run build
 
 # 后端
 cd backend
