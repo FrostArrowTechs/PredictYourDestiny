@@ -25,12 +25,25 @@ type NameHandler struct {
 
 // nameComputeReq is the input for name analysis.
 type nameComputeReq struct {
-	FullName       string `json:"fullName" binding:"required,min=2"`
-	Gender         int    `json:"gender" binding:"min=0,max=1"`
-	Lang           string `json:"lang"`
-	InterpretDepth string `json:"interpretDepth"`
-	Model          string `json:"model"`
-	Stream         bool   `json:"stream"`
+	FullName         string `json:"fullName"`
+	Surname          string `json:"surname"`
+	GivenName        string `json:"givenName"`
+	SurnameConfirmed bool   `json:"surnameConfirmed"`
+	Script           string `json:"script"`
+	StrokeStandard   string `json:"strokeStandard"`
+	Gender           int    `json:"gender" binding:"min=0,max=1"`
+	Lang             string `json:"lang"`
+	InterpretDepth   string `json:"interpretDepth"`
+	Model            string `json:"model"`
+	Stream           bool   `json:"stream"`
+}
+
+func (r nameComputeReq) toFortuneInput() fortune.Input {
+	return fortune.Input{
+		Question: r.FullName, Surname: r.Surname, GivenName: r.GivenName,
+		SurnameConfirmed: r.SurnameConfirmed, Script: r.Script, StrokeStandard: r.StrokeStandard,
+		Lang: r.Lang, InterpretDepth: r.InterpretDepth,
+	}
 }
 
 // Compute runs the Five格 calculation and returns the structured result.
@@ -44,11 +57,7 @@ func (h *NameHandler) Compute(c *gin.Context) {
 	eng := fortune.NameEngine{DB: h.DB}
 
 	// Build Input from request (use Question field for full name)
-	input := fortune.Input{
-		Question:       req.FullName,
-		Lang:           req.Lang,
-		InterpretDepth: req.InterpretDepth,
-	}
+	input := req.toFortuneInput()
 
 	res, err := eng.Compute(input)
 	if err != nil {
@@ -70,11 +79,7 @@ func (h *NameHandler) Interpret(c *gin.Context) {
 	eng := fortune.NameEngine{DB: h.DB}
 
 	// Build Input from request
-	input := fortune.Input{
-		Question:       req.FullName,
-		Lang:           req.Lang,
-		InterpretDepth: req.InterpretDepth,
-	}
+	input := req.toFortuneInput()
 
 	res, err := eng.Compute(input)
 	if err != nil {

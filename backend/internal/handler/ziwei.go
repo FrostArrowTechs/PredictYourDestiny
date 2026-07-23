@@ -25,11 +25,12 @@ type ZiweiHandler struct {
 // ziweiComputeReq is the input for a Ziwei chart.
 type ziweiComputeReq struct {
 	fortune.BirthContext
-	Gender         int    `json:"gender" binding:"min=0,max=1"`
-	Lang           string `json:"lang"`
-	InterpretDepth string `json:"interpretDepth"`
-	Model          string `json:"model"`
-	Stream         bool   `json:"stream"`
+	Gender             int    `json:"gender" binding:"min=0,max=1"`
+	Lang               string `json:"lang"`
+	InterpretDepth     string `json:"interpretDepth"`
+	Model              string `json:"model"`
+	Stream             bool   `json:"stream"`
+	ZiweiLeapMonthRule string `json:"ziweiLeapMonthRule"`
 }
 
 func (r ziweiComputeReq) toFortuneInput() (fortune.Input, error) {
@@ -45,15 +46,16 @@ func (r ziweiComputeReq) toFortuneInput() (fortune.Input, error) {
 		lang = "zh-CN"
 	}
 	return fortune.Input{
-		Birth:          &birth,
-		Year:           birth.Year,
-		Month:          birth.Month,
-		Day:            birth.Day,
-		Hour:           hour,
-		Minute:         minute,
-		Gender:         fortune.Gender(r.Gender),
-		Lang:           lang,
-		InterpretDepth: r.InterpretDepth,
+		Birth:              &birth,
+		Year:               birth.Year,
+		Month:              birth.Month,
+		Day:                birth.Day,
+		Hour:               hour,
+		Minute:             minute,
+		Gender:             fortune.Gender(r.Gender),
+		ZiweiLeapMonthRule: r.ZiweiLeapMonthRule,
+		Lang:               lang,
+		InterpretDepth:     r.InterpretDepth,
 	}, nil
 }
 
@@ -70,7 +72,7 @@ func (r ziweiComputeReq) toUncertaintyInput() (fortune.Input, error) {
 		lang = "zh-CN"
 	}
 	return fortune.Input{Birth: &birth, Year: birth.Year, Month: birth.Month, Day: birth.Day,
-		Gender: fortune.Gender(r.Gender), Lang: lang, InterpretDepth: r.InterpretDepth}, nil
+		Gender: fortune.Gender(r.Gender), ZiweiLeapMonthRule: r.ZiweiLeapMonthRule, Lang: lang, InterpretDepth: r.InterpretDepth}, nil
 }
 
 // Compute returns the Ziwei chart.

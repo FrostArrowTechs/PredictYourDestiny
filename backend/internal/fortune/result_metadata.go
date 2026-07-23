@@ -34,7 +34,7 @@ type ResultMetadata struct {
 
 var birthAlgorithmVersions = map[string][2]string{
 	KindBazi:      {"bazi-lunar-go-v2", BaziRuleSetStandardV1},
-	KindZiwei:     {"ziwei-traditional-v1", "ziwei-legacy-rules-v1"},
+	KindZiwei:     {ZiweiAlgorithmVersion, ZiweiRuleSetVersion},
 	KindAstrology: {"astrology-simplified-v1", "astrology-simplified-rules-v1"},
 	KindWeighbone: {"weighbone-table-v1", "weighbone-traditional-rules-v1"},
 }
@@ -106,8 +106,20 @@ func AttachBirthMetadata(result *Result, input Input) {
 		meta.UnsupportedRules = append(meta.UnsupportedRules, "ascendant", "MC", "houses", "retrograde")
 	}
 	if result.Kind == KindZiwei {
-		meta.Warnings = append(meta.Warnings, "five-element bureau and some star placement rules still use documented legacy approximations")
-		meta.UnsupportedRules = append(meta.UnsupportedRules, "verified leap-month rule pack", "verified five-element bureau rule pack")
+		if chart, ok := result.Data.(*ZiweiChart); ok {
+			meta.AlgorithmVersion = chart.AlgorithmVersion
+			meta.RuleSetVersion = chart.RulePack.Version
+			meta.CalendarLibraryVersion = chart.RulePack.CalendarVersion
+			meta.Warnings = append(meta.Warnings, chart.Warnings...)
+			meta.UnsupportedRules = append(meta.UnsupportedRules, chart.RulePack.UnsupportedRules...)
+			for _, source := range chart.RulePack.Evidence {
+				meta.Evidence = append(meta.Evidence, Evidence{Source: source, Description: "active provisional Ziwei rule-pack evidence"})
+			}
+			if chart.LunarMonthWasLeap {
+				meta.Assumptions = append(meta.Assumptions, fmt.Sprintf("leap lunar month evaluated with explicit rule %s as effective month %d", chart.LeapMonthRule, chart.EffectiveLunarMonth))
+				meta.Evidence = append(meta.Evidence, Evidence{Source: chart.LeapMonthRule, Description: "user-selected leap-month convention"})
+			}
+		}
 	}
 	result.ResultMetadata = &meta
 }

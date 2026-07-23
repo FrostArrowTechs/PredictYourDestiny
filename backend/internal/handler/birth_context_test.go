@@ -57,7 +57,7 @@ func TestBirthComputeEndpointsReturnUncertaintyCandidates(t *testing.T) {
 	}{
 		{"bazi", "/bazi", func(r *gin.Engine) { r.POST("/bazi", (&BaziHandler{}).Compute) }, `{"year":2000,"month":1,"day":1,"timePrecision":"unknown","gender":1}`},
 		{"ziwei", "/ziwei", func(r *gin.Engine) { r.POST("/ziwei", (&ZiweiHandler{}).Compute) }, `{"year":2000,"month":1,"day":1,"timePrecision":"unknown","gender":1}`},
-		{"astrology", "/astrology", func(r *gin.Engine) { r.POST("/astrology", (&AstrologyHandler{}).Compute) }, `{"year":2000,"month":1,"day":1,"timePrecision":"unknown"}`},
+		{"astrology", "/astrology", func(r *gin.Engine) { r.POST("/astrology", (&AstrologyHandler{}).Compute) }, `{"year":2000,"month":1,"day":1,"timePrecision":"unknown","timeZone":"UTC"}`},
 		{"weighbone", "/weighbone", func(r *gin.Engine) { r.POST("/weighbone", (&WeighboneHandler{}).Compute) }, `{"year":2000,"month":1,"day":1,"timePrecision":"unknown"}`},
 	}
 	for _, tt := range tests {
@@ -72,5 +72,38 @@ func TestBirthComputeEndpointsReturnUncertaintyCandidates(t *testing.T) {
 				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 			}
 		})
+	}
+}
+
+func TestZiweiLeapMonthRequiresExplicitRule(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/ziwei", (&ZiweiHandler{}).Compute)
+	req := httptest.NewRequest(http.MethodPost, "/ziwei", strings.NewReader(`{"year":2023,"month":3,"day":22,"hour":12,"minute":0,"timePrecision":"minute","gender":1}`))
+	req.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, req)
+	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "leap-month rule") {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestAstrologyCalculationErrorsHaveStableHTTPResponses(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tests := []struct {
+		err    error
+		status int
+		code   string
+	}{
+		{fortune.ErrAstrologyHighLatitude, http.StatusUnprocessableEntity, "astrology_high_latitude_unsupported"},
+		{fortune.ErrAstrologyCalculationFailed, http.StatusServiceUnavailable, "astrology_calculation_failed"},
+	}
+	for _, test := range tests {
+		response := httptest.NewRecorder()
+		context, _ := gin.CreateTestContext(response)
+		writeBirthComputeError(context, test.err)
+		if response.Code != test.status || !strings.Contains(response.Body.String(), `"code":"`+test.code+`"`) {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
 	}
 }

@@ -5,7 +5,8 @@ import type { NameChart, InterpretStreamEvent } from '../../api/client'
 
 export default function NamePage() {
   const { t } = useTranslation()
-  const [fullName, setFullName] = useState('')
+  const [surname, setSurname] = useState('')
+  const [givenName, setGivenName] = useState('')
   const [chart, setChart] = useState<NameChart | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -14,28 +15,28 @@ export default function NamePage() {
   const abortRef = useRef<AbortController | null>(null)
 
   const handleCompute = useCallback(async () => {
-    if (!fullName.trim()) return
+    if (!surname.trim() || !givenName.trim()) return
     setLoading(true)
     setError(null)
     setChart(null)
     setInterpretation('')
     try {
-      const res = await Name.compute({ fullName: fullName.trim() })
+      const res = await Name.compute({ surname: surname.trim(), givenName: givenName.trim(), surnameConfirmed: true, strokeStandard: 'kangxi' })
       setChart(res.data)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Request failed')
     } finally {
       setLoading(false)
     }
-  }, [fullName])
+  }, [surname, givenName])
 
   const handleInterpret = useCallback(() => {
-    if (!fullName.trim()) return
+    if (!surname.trim() || !givenName.trim()) return
     setStreaming(true)
     setInterpretation('')
     abortRef.current = new AbortController()
     streamNameInterpret(
-      { fullName: fullName.trim(), stream: true },
+      { surname: surname.trim(), givenName: givenName.trim(), surnameConfirmed: true, strokeStandard: 'kangxi', stream: true },
       (ev: InterpretStreamEvent) => {
         if (ev.error) {
           setError(ev.error)
@@ -51,7 +52,7 @@ export default function NamePage() {
       setError(e instanceof Error ? e.message : 'Stream failed')
       setStreaming(false)
     })
-  }, [fullName])
+  }, [surname, givenName])
 
   const cancelStream = useCallback(() => {
     abortRef.current?.abort()
@@ -69,15 +70,23 @@ export default function NamePage() {
         <div className="flex gap-2">
           <input
             type="text"
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            placeholder={t('name.fullNamePlaceholder')}
+            value={surname}
+            onChange={(e) => setSurname(e.target.value)}
+            placeholder={t('name.surnamePlaceholder')}
+            className="w-1/3 rounded-md border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-primary"
+            maxLength={8}
+          />
+          <input
+            type="text"
+            value={givenName}
+            onChange={(e) => setGivenName(e.target.value)}
+            placeholder={t('name.givenNamePlaceholder')}
             className="flex-1 rounded-md border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-primary"
-            maxLength={20}
+            maxLength={12}
           />
           <button
             onClick={handleCompute}
-            disabled={loading || !fullName.trim()}
+            disabled={loading || !surname.trim() || !givenName.trim()}
             className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-bg hover:bg-primary/90 disabled:opacity-50"
           >
             {loading ? t('name.analyzing') : t('name.analyze')}
@@ -97,10 +106,22 @@ export default function NamePage() {
         <>
           {/* Score Hero */}
           <div className="mb-6 rounded-lg border border-border bg-surface p-6 text-center">
-            <div className="mb-2 text-sm text-muted">{t('name.overallScore')}</div>
-            <div className="text-5xl font-bold text-primary">{chart.score}</div>
-            <div className="mt-1 text-lg text-fg">{chart.scoreDesc}</div>
+            <div className="mb-2 text-sm text-muted">{t('name.traditionalMatchScore')}</div>
+            <div className="text-5xl font-bold text-primary">{chart.traditionalMatchScore}</div>
+            <div className="mt-1 text-lg text-fg">{chart.traditionalMatchDesc}</div>
             <div className="mt-3 text-sm text-muted">{t('name.sanCai')}: {chart.sanCai}</div>
+            <div className="mt-2 text-xs text-muted">{chart.strokeStandard} · {chart.dictionaryVersion} · {chart.ruleSetVersion}</div>
+            {chart.warnings.map((warning) => <div key={warning} className="mt-2 text-xs text-amber-500">{warning}</div>)}
+          </div>
+
+          <div className="mb-6 grid gap-3 md:grid-cols-2">
+            {chart.evaluations.map((evaluation) => (
+              <div key={evaluation.dimension} className="rounded-lg border border-border bg-surface p-4">
+                <div className="text-sm font-semibold text-fg">{t(`name.dimensions.${evaluation.dimension}`)}</div>
+                <div className="mt-1 text-sm text-muted">{evaluation.summary}</div>
+                {evaluation.warnings.map((warning) => <div key={warning} className="mt-2 text-xs text-amber-500">{warning}</div>)}
+              </div>
+            ))}
           </div>
 
           {/* Five格 Cards */}

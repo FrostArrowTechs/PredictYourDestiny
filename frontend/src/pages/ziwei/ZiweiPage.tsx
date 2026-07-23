@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import {
   Ziwei as ZiweiApi,
   type ZiweiChart,
+  type ZiweiPalace,
   type ZiweiInput,
   type InterpretStreamEvent,
   streamZiweiInterpret,
@@ -23,6 +24,7 @@ export default function ZiweiPage() {
   const [hour, setHour] = useState(12)
   const [minute, setMinute] = useState(0)
   const [gender, setGender] = useState<0 | 1>(1)
+  const [leapMonthRule, setLeapMonthRule] = useState<ZiweiInput['ziweiLeapMonthRule']>('')
 
   const [chart, setChart] = useState<ZiweiChart | null>(null)
   const [computing, setComputing] = useState(false)
@@ -37,8 +39,8 @@ export default function ZiweiPage() {
   const abortRef = useRef<AbortController | null>(null)
 
   const buildInput = useCallback(
-    (): ZiweiInput => ({ year, month, day, hour, minute, gender, lang }),
-    [year, month, day, hour, minute, gender, lang],
+    (): ZiweiInput => ({ year, month, day, hour, minute, gender, lang, ziweiLeapMonthRule: leapMonthRule }),
+    [year, month, day, hour, minute, gender, lang, leapMonthRule],
   )
 
   const onCompute = useCallback(async () => {
@@ -156,6 +158,15 @@ export default function ZiweiPage() {
             </div>
           </div>
 
+          <div>
+            <label className="mb-1 block text-xs text-muted">{t('ziwei.form.leapMonthRule')}</label>
+            <select className={inputCls} value={leapMonthRule} onChange={(e) => setLeapMonthRule(e.target.value as ZiweiInput['ziweiLeapMonthRule'])}>
+              <option value="">{t('ziwei.form.leapMonthOnly')}</option>
+              <option value="as_next_month-v1">{t('ziwei.form.leapAsNext')}</option>
+              <option value="split_at_day_15-v1">{t('ziwei.form.leapSplit15')}</option>
+            </select>
+          </div>
+
           <button
             type="button"
             onClick={onCompute}
@@ -172,6 +183,11 @@ export default function ZiweiPage() {
       {/* chart */}
       {chart && (
         <section className="space-y-4">
+          <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-4 text-sm">
+            <div className="font-medium text-amber-500">{chart.rulePack.version} · {chart.rulePack.status}</div>
+            {chart.warnings.map((warning) => <p key={warning} className="mt-2 text-xs text-muted">{warning}</p>)}
+            {chart.rulePack.approximateRules.map((rule) => <p key={rule} className="mt-1 text-xs text-muted">• {rule}</p>)}
+          </div>
           {/* Summary header */}
           <div className="rounded-2xl border border-border bg-surface p-5">
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -267,7 +283,7 @@ function Info({ label, value, highlight }: { label: string; value: string; highl
   )
 }
 
-function PalaceCard({ palace, t }: { palace: any; t: any }) {
+function PalaceCard({ palace, t }: { palace: ZiweiPalace; t: any }) {
   const border = palace.isLife
     ? 'border-primary/60 bg-primary/5'
     : palace.isBody
@@ -282,9 +298,11 @@ function PalaceCard({ palace, t }: { palace: any; t: any }) {
           {palace.isLife && <span className="rounded bg-primary px-1.5 py-0.5 text-xs text-bg">命</span>}
           {palace.isBody && <span className="rounded bg-yellow-500 px-1.5 py-0.5 text-xs text-bg">身</span>}
         </div>
-        {palace.transform && (
-          <span className="rounded bg-red-500/20 px-2 py-0.5 text-xs text-red-400">{palace.transform}</span>
-        )}
+        <div className="flex flex-wrap gap-1">
+          {palace.transformations.map((item) => (
+            <span key={`${item.star}-${item.label}`} className="rounded bg-red-500/20 px-2 py-0.5 text-xs text-red-400">{item.star}{item.label}</span>
+          ))}
+        </div>
       </div>
       {palace.stars.length > 0 ? (
         <div className="flex flex-wrap gap-1">

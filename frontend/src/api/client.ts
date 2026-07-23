@@ -127,6 +127,9 @@ export interface ResultMetadata {
   inputPrecision: 'minute' | 'hour' | 'period' | 'shichen' | 'unknown'
   assumptions: string[]
   warnings: string[]
+  lunarMonthWasLeap: boolean
+  leapMonthRule?: string
+  effectiveLunarMonth: number
   unsupportedRules: string[]
   stableFacts: Array<{ key: string; value: unknown }>
   variableFacts: Array<{ key: string; value: unknown }>
@@ -804,6 +807,15 @@ export interface StrokeDetail {
 
 export interface NameChart {
   fullName: string
+  surname: string
+  givenName: string
+  surnameConfirmed: boolean
+  inputMode: 'structured' | 'legacy_auto_split'
+  script: 'zh-Hans' | 'zh-Hant'
+  strokeStandard: string
+  dictionaryVersion: string
+  ruleSetVersion: string
+  warnings: string[]
   tianGe: number
   renGe: number
   diGe: number
@@ -815,8 +827,16 @@ export interface NameChart {
   diGeLuck: string
   waiGeLuck: string
   zongGeLuck: string
-  score: number
-  scoreDesc: string
+  traditionalMatchScore: number
+  traditionalMatchDesc: string
+  evaluations: Array<{
+    dimension: 'traditional_numerology' | 'pronunciation' | 'meaning' | 'writing_compatibility'
+    status: 'available' | 'unavailable' | 'basic_check'
+    score?: number
+    summary: string
+    evidence: string[]
+    warnings: string[]
+  }>
   strokeDetails: StrokeDetail[]
 }
 
@@ -827,7 +847,12 @@ export interface NameResult {
 }
 
 export interface NameInput {
-  fullName: string
+  fullName?: string
+  surname?: string
+  givenName?: string
+  surnameConfirmed?: boolean
+  script?: 'zh-Hans' | 'zh-Hant'
+  strokeStandard?: 'kangxi'
   lang?: string
   interpretDepth?: 'brief' | 'deep'
   model?: string
@@ -872,6 +897,8 @@ export interface AspectInfo {
 
 export interface AstrologyChart {
   accuracyLabel: string
+  timeZone: string
+  utcInstant: string
   sunSign: string
   moonSign: string
   ascendant: string
@@ -913,6 +940,8 @@ export function asAstrologyChart(r: AstrologyResult): AstrologyChart {
   }
   return {
     accuracyLabel: r.accuracyLabel ?? '娱乐性简化版',
+    timeZone: '',
+    utcInstant: '',
     sunSign: r.sunSign ?? '',
     moonSign: r.moonSign ?? '',
     ascendant: r.ascendant ?? '',
@@ -931,7 +960,7 @@ export interface AstrologyInput {
   minute: number
   longitude?: number
   latitude?: number
-  timezone?: number
+  timeZone: string
   lang?: string
   interpretDepth?: 'brief' | 'deep'
   model?: string
@@ -1068,9 +1097,28 @@ export interface ZiweiPalace {
   isBody: boolean
   stars: string[]
   transform: string
+  transformations: ZiweiTransformation[]
+}
+
+export interface ZiweiTransformation {
+  ruleSetVersion: string
+  star: string
+  label: string
+  position: number
 }
 
 export interface ZiweiChart {
+  algorithmVersion: string
+  rulePack: {
+    version: string
+    status: 'provisional' | 'verified'
+    calendarVersion: string
+    supportedRules: string[]
+    approximateRules: string[]
+    unsupportedRules: string[]
+    evidence: string[]
+  }
+  warnings: string[]
   solarDate: string
   lunarDate: string
   gender: string
@@ -1086,6 +1134,7 @@ export interface ZiweiChart {
   daYunStartAge: number
   daYunForward: boolean
   mainStarOfLife: string
+  transformations: ZiweiTransformation[]
 }
 
 export interface ZiweiResult {
@@ -1101,6 +1150,7 @@ export interface ZiweiInput {
   hour: number
   minute: number
   gender: 0 | 1
+  ziweiLeapMonthRule?: '' | 'as_next_month-v1' | 'split_at_day_15-v1'
   lang?: string
   interpretDepth?: 'brief' | 'deep'
   model?: string

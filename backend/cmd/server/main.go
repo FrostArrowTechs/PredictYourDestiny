@@ -287,6 +287,12 @@ func seedDivinationPoems(db *gorm.DB) error {
 // seedCharacterStrokes loads seed/strokes.json into the character_strokes
 // table. Idempotent: skipped if rows already exist.
 func seedCharacterStrokes(db *gorm.DB) error {
+	const dictionaryVersion = "kangxi-seed-2026-07-v1"
+	if err := db.Model(&model.CharacterStroke{}).Where("data_version = '' OR data_version IS NULL").Updates(map[string]any{
+		"script": "mixed", "stroke_standard": "kangxi", "data_version": dictionaryVersion, "review_status": "seed_unreviewed",
+	}).Error; err != nil {
+		return err
+	}
 	data, err := os.ReadFile("seed/strokes.json")
 	if err != nil {
 		return err
@@ -295,6 +301,12 @@ func seedCharacterStrokes(db *gorm.DB) error {
 	var strokes []model.CharacterStroke
 	if err := json.Unmarshal(data, &strokes); err != nil {
 		return err
+	}
+	for i := range strokes {
+		strokes[i].Script = "mixed"
+		strokes[i].StrokeStandard = "kangxi"
+		strokes[i].DataVersion = dictionaryVersion
+		strokes[i].ReviewStatus = "seed_unreviewed"
 	}
 
 	var count int64

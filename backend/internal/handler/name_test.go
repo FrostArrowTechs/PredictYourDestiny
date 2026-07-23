@@ -38,3 +38,29 @@ func TestNameComputeReturns422AndUnknownCharacters(t *testing.T) {
 		t.Fatalf("status=%d body=%s", resp.Code, resp.Body.String())
 	}
 }
+
+func TestNameComputeAcceptsConfirmedStructuredName(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.CharacterStroke{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range []model.CharacterStroke{{Char: "欧", Strokes: 15}, {Char: "阳", Strokes: 17}, {Char: "修", Strokes: 10}} {
+		if err := db.Create(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	router := gin.New()
+	handler := NameHandler{DB: db}
+	router.POST("/api/name/compute", handler.Compute)
+	req := httptest.NewRequest(http.MethodPost, "/api/name/compute", strings.NewReader(`{"surname":"欧阳","givenName":"修","surnameConfirmed":true,"script":"zh-Hans","strokeStandard":"kangxi"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK || !strings.Contains(resp.Body.String(), `"surname":"欧阳"`) || strings.Contains(resp.Body.String(), `"score":null`) {
+		t.Fatalf("status=%d body=%s", resp.Code, resp.Body.String())
+	}
+}

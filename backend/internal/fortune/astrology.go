@@ -1,31 +1,44 @@
 package fortune
 
 import (
+	"errors"
 	"fmt"
 	"math"
+	"time"
 )
 
 // AstrologyEngine implements Western natal chart calculation.
 // Uses simplified astronomical algorithms for planetary positions.
 // Data sources: Astronomical algorithms (public domain) + Traditional astrological interpretations
-type AstrologyEngine struct{}
-
-// AstrologyInput is the request for natal chart calculation.
-type AstrologyInput struct {
-	Year      int     `json:"year"`
-	Month     int     `json:"month"`
-	Day       int     `json:"day"`
-	Hour      int     `json:"hour"`
-	Minute    int     `json:"minute"`
-	Longitude float64 `json:"longitude"` // Birth place longitude
-	Latitude  float64 `json:"latitude"`  // Birth place latitude
-	Timezone  float64 `json:"timezone"`  // Timezone offset (e.g., 8 for UTC+8)
-	Lang      string  `json:"lang"`
+type AstrologyEngine struct {
+	Calculator AstrologyCalculator
 }
+
+var (
+	ErrAstrologyHighLatitude      = errors.New("astrology house calculation is unavailable at this latitude")
+	ErrAstrologyCalculationFailed = errors.New("astrology calculation failed")
+)
+
+// AstrologyCalculationInput is the stable boundary for a future licensed
+// ephemeris adapter. Implementations must return an error instead of silently
+// changing ephemeris, house system, or calculation precision.
+type AstrologyCalculationInput struct {
+	JulianDay  float64
+	UTCInstant time.Time
+	Birth      BirthContext
+}
+
+type AstrologyCalculator interface {
+	Calculate(AstrologyCalculationInput) (*AstrologyResult, error)
+}
+
+type simplifiedAstrologyCalculator struct{}
 
 // AstrologyResult contains the natal chart data.
 type AstrologyResult struct {
 	AccuracyLabel string       `json:"accuracyLabel"`
+	TimeZone      string       `json:"timeZone"`
+	UTCInstant    string       `json:"utcInstant"`
 	SunSign       string       `json:"sunSign"`             // Sun sign
 	MoonSign      string       `json:"moonSign"`            // Moon sign
 	Ascendant     string       `json:"ascendant,omitempty"` // unavailable until a verified ephemeris implementation
@@ -69,11 +82,35 @@ func (e AstrologyEngine) Name() string {
 }
 
 func (e AstrologyEngine) Compute(in Input) (*Result, error) {
-	// Calculate Julian Day
-	jd := toJulianDay(in.Year, in.Month, in.Day, in.Hour, in.Minute, 0, 8.0) // Default UTC+8
+	if in.Birth == nil || in.Birth.TimeZone == "" {
+		return nil, fmt.Errorf("IANA birth time zone is required for astrology")
+	}
+	utcInstant, err := strictLocalTimeUTC(in.Year, in.Month, in.Day, in.Hour, in.Minute, in.Birth.TimeZone)
+	if err != nil {
+		return nil, err
+	}
+	jd := julianDayUTC(utcInstant)
+	calculator := e.Calculator
+	if calculator == nil {
+		calculator = simplifiedAstrologyCalculator{}
+	}
+	result, err := calculator.Calculate(AstrologyCalculationInput{
+		JulianDay: jd, UTCInstant: utcInstant, Birth: *in.Birth,
+	})
+	if err != nil {
+		// Deliberately no fallback: changing calculators would hide a material
+		// change in precision and can fabricate houses at extreme latitudes.
+		return nil, err
+	}
+	if result == nil {
+		return nil, fmt.Errorf("%w: calculator returned no result", ErrAstrologyCalculationFailed)
+	}
+	return &Result{Kind: KindAstrology, Data: result}, nil
+}
 
+func (simplifiedAstrologyCalculator) Calculate(in AstrologyCalculationInput) (*AstrologyResult, error) {
 	// Calculate planetary positions
-	planets := calculatePlanets(jd)
+	planets := calculatePlanets(in.JulianDay)
 
 	// Calculate aspects
 	aspects := calculateAspects(planets)
@@ -92,6 +129,8 @@ func (e AstrologyEngine) Compute(in Input) (*Result, error) {
 
 	result := &AstrologyResult{
 		AccuracyLabel: "娱乐性简化版",
+		TimeZone:      in.Birth.TimeZone,
+		UTCInstant:    in.UTCInstant.Format(time.RFC3339),
 		SunSign:       sunSign,
 		MoonSign:      moonSign,
 		Planets:       planets,
@@ -100,7 +139,41 @@ func (e AstrologyEngine) Compute(in Input) (*Result, error) {
 		ChartSummary:  fmt.Sprintf("娱乐性简化结果：太阳%s，月亮%s；当前算法不提供上升、宫位或逆行结论", sunSign, moonSign),
 	}
 
-	return &Result{Kind: KindAstrology, Data: result}, nil
+	return result, nil
+}
+
+// strictLocalTimeUTC converts a civil birth time with the historical rules in
+// the IANA database. A daylight-saving gap or fold is rejected because either
+// represents no unique instant and silently choosing one changes the chart.
+func strictLocalTimeUTC(year, month, day, hour, minute int, zone string) (time.Time, error) {
+	location, err := time.LoadLocation(zone)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("invalid IANA time zone %q", zone)
+	}
+	local := time.Date(year, time.Month(month), day, hour, minute, 0, 0, location)
+	if local.Year() != year || int(local.Month()) != month || local.Day() != day || local.Hour() != hour || local.Minute() != minute {
+		return time.Time{}, fmt.Errorf("local birth time %04d-%02d-%02d %02d:%02d does not exist in %s due to a time-zone transition", year, month, day, hour, minute, zone)
+	}
+
+	matches := 0
+	var matched time.Time
+	// Include historical date-line transitions as well as ordinary DST folds.
+	for candidate := local.UTC().Add(-26 * time.Hour); !candidate.After(local.UTC().Add(26 * time.Hour)); candidate = candidate.Add(time.Minute) {
+		civil := candidate.In(location)
+		if civil.Year() == year && int(civil.Month()) == month && civil.Day() == day && civil.Hour() == hour && civil.Minute() == minute {
+			matches++
+			matched = candidate
+		}
+	}
+	if matches != 1 {
+		return time.Time{}, fmt.Errorf("local birth time %04d-%02d-%02d %02d:%02d is ambiguous in %s due to a time-zone transition; provide an unambiguous local time", year, month, day, hour, minute, zone)
+	}
+	return matched, nil
+}
+
+func julianDayUTC(instant time.Time) float64 {
+	utc := instant.UTC()
+	return toJulianDay(utc.Year(), int(utc.Month()), utc.Day(), utc.Hour(), utc.Minute(), utc.Second(), 0)
 }
 
 // Zodiac signs

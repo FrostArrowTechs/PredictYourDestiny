@@ -20,6 +20,7 @@ package fortune
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/6tail/lunar-go/calendar"
 )
@@ -37,7 +38,7 @@ type ZiweiEngine struct{}
 // The standard 12 named palaces:
 var ziweiPalaceNames = []string{
 	"命宫", "兄弟", "夫妻", "子女", "财帛", "疾厄",
-	"官禄", "奴仆", "迁移", "田宅", "福德", "父母",
+	"迁移", "奴仆", "官禄", "田宅", "福德", "父母",
 }
 
 // earthlyBranches12 is the 12 earthly branches in wheel order (寅-first
@@ -48,17 +49,31 @@ var earthlyBranches12 = []string{
 
 // ZiweiPalace is one of the 12 palaces on the chart wheel.
 type ZiweiPalace struct {
-	Branch    string   `json:"branch"`    // 地支 (子..亥)
-	Position  int      `json:"position"`  // 0-11 index on the wheel
-	Name      string   `json:"name"`      // 命宫/兄弟/...
-	IsLife    bool     `json:"isLife"`    // true if this is 命宫
-	IsBody    bool     `json:"isBody"`    // true if this is 身宫
-	Stars     []string `json:"stars"`     // main + auxiliary stars here
-	Transform string   `json:"transform"` // 化禄/化权/化科/化忌 if any
+	Branch          string                `json:"branch"`    // 地支 (子..亥)
+	Position        int                   `json:"position"`  // 0-11 index on the wheel
+	Name            string                `json:"name"`      // 命宫/兄弟/...
+	IsLife          bool                  `json:"isLife"`    // true if this is 命宫
+	IsBody          bool                  `json:"isBody"`    // true if this is 身宫
+	Stars           []string              `json:"stars"`     // main + auxiliary stars here
+	Transform       string                `json:"transform"` // 化禄/化权/化科/化忌 if any
+	Transformations []ZiweiTransformation `json:"transformations"`
+}
+
+type ZiweiTransformation struct {
+	RuleSetVersion string `json:"ruleSetVersion"`
+	Star           string `json:"star"`
+	Label          string `json:"label"`
+	Position       int    `json:"position"`
 }
 
 // ZiweiChart is the full chart result.
 type ZiweiChart struct {
+	AlgorithmVersion    string        `json:"algorithmVersion"`
+	RulePack            ZiweiRulePack `json:"rulePack"`
+	Warnings            []string      `json:"warnings"`
+	LunarMonthWasLeap   bool          `json:"lunarMonthWasLeap"`
+	LeapMonthRule       string        `json:"leapMonthRule,omitempty"`
+	EffectiveLunarMonth int           `json:"effectiveLunarMonth"`
 	// The user's birth info (echoed)
 	SolarDate string `json:"solarDate"`
 	LunarDate string `json:"lunarDate"`
@@ -81,7 +96,8 @@ type ZiweiChart struct {
 	DaYunStartAge int  `json:"daYunStartAge"`
 	DaYunForward  bool `json:"daYunForward"`
 	// Summary of the dominant stars for quick display
-	MainStarOfLife string `json:"mainStarOfLife"`
+	MainStarOfLife  string                `json:"mainStarOfLife"`
+	Transformations []ZiweiTransformation `json:"transformations"`
 }
 
 // Name returns the engine identifier.
@@ -91,6 +107,10 @@ func (e ZiweiEngine) Name() string { return KindZiwei }
 func (e ZiweiEngine) Compute(in Input) (*Result, error) {
 	if in.Year < 1900 || in.Year > 2100 {
 		return nil, fmt.Errorf("ziwei: year out of range (1900-2100)")
+	}
+	pack := activeZiweiRulePack()
+	if in.Birth != nil && in.Birth.RuleSet != "" && in.Birth.RuleSet != pack.Version {
+		return nil, fmt.Errorf("%w: %q (available: %s)", ErrZiweiUnsupportedRuleSet, in.Birth.RuleSet, pack.Version)
 	}
 
 	// Convert solar → lunar via lunar-go. Lunar hour 0-23; lunar-go uses
@@ -114,19 +134,17 @@ func (e ZiweiEngine) Compute(in Input) (*Result, error) {
 	// Rule: start at 寅 (index 2), count forward by the lunar month
 	// count (正月=1), then count backward by the 时辰 for 命宫; for 身宫
 	// count forward by the 时辰.
-	lunarMonth := lunar.GetMonth() // 1-12 (can be negative for leap handling, clamp)
-	if lunarMonth < 1 {
-		lunarMonth = 1
+	rawLunarMonth := lunar.GetMonth() // lunar-go uses negative values for leap months.
+	lunarDay := lunar.GetDay()        // 1-30
+	lunarMonth, err := resolveZiweiLunarMonth(rawLunarMonth, lunarDay, in.ZiweiLeapMonthRule)
+	if err != nil {
+		return nil, err
 	}
-	lunarDay := lunar.GetDay() // 1-30
 
 	// 命宫 position: 寅(2) + month - 1, then - (时辰).
-	// Standard formula: 命宫 index = (2 + month - 1 - shiChen + 1) mod 12.
-	// Simplified and verified: position = (month - shiChen) mod 12, then
-	// mapped onto the branch wheel starting at 寅.
-	lifePos := ((lunarMonth-shiChen)%12 + 12) % 12
-	// 身宫: 寅(2) + month - 1, then + 时辰
-	bodyPos := ((lunarMonth+shiChen)%12 + 12) % 12
+	// 正月 starts at 寅. From the birth-month palace, treat 子时 as the
+	// first hour and count backwards for 命宫, forwards for 身宫.
+	lifePos, bodyPos := ziweiLifeBodyPositions(lunarMonth, shiChen)
 
 	// Map a 0-11 "month/clock" position onto the wheel where index 0 = 寅.
 	// We define wheelPos such that wheelPos 0 → 寅(2), 1 → 卯(3), etc.
@@ -140,44 +158,46 @@ func (e ZiweiEngine) Compute(in Input) (*Result, error) {
 	lifeBranch := wheelToBranch(lifeWheel)
 	bodyBranch := wheelToBranch(bodyWheel)
 
-	// --- Step 2: place the 12 named palaces starting from 命宫 ---
+	// --- Step 2: place the 12 named palaces counterclockwise from 命宫 ---
 	palaces := make([]ZiweiPalace, 12)
 	for i := 0; i < 12; i++ {
-		wheelPos := (lifeWheel + i) % 12
+		wheelPos := (lifeWheel - i + 12) % 12
 		palaces[i] = ZiweiPalace{
-			Branch:   wheelToBranch(wheelPos),
-			Position: wheelPos,
-			Name:     ziweiPalaceNames[i],
-			IsLife:   i == 0,
-			IsBody:   wheelPos == bodyWheel,
-			Stars:    []string{},
+			Branch:          wheelToBranch(wheelPos),
+			Position:        wheelPos,
+			Name:            ziweiPalaceNames[i],
+			IsLife:          i == 0,
+			IsBody:          wheelPos == bodyWheel,
+			Stars:           []string{},
+			Transformations: []ZiweiTransformation{},
 		}
 	}
 
 	// --- Step 3: locate 紫微 star from the lunar day + 五行局 ---
-	ju := computeWuXingJu(lunar.GetYearGan(), lunarMonth, lunarDay)
+	ju := computeWuXingJu(lunar.GetYearGan(), lifeBranch)
+	if ju == "" {
+		return nil, fmt.Errorf("ziwei: cannot derive five-element bureau from %s year and %s life palace", lunar.GetYearGan(), lifeBranch)
+	}
 	ziweiPos := locateZiwei(lunarDay, ju) // lunarDay is int
 
 	// --- Step 4: place the 14 main stars ---
 	starsByPos := map[int][]string{}
 	placeMainStars(ziweiPos, ju, starsByPos)
 
-	// --- Step 5: place auxiliary and煞 stars by year/month/day stems ---
+	// --- Step 5: verified auxiliary and malefic subset ---
 	yearGan := lunar.GetYearGan()
-	monthGan := lunar.GetMonthGan()
-	dayGan := lunar.GetDayGan()
-	placeAuxStars(yearGan, monthGan, dayGan, shiChen, starsByPos)
+	yearZhi := lunar.GetYearZhi()
+	placeAuxStars(yearGan, yearZhi, lunarMonth, shiChen, starsByPos)
 
 	// --- Step 6: 四化 (Four Transformations) by year stem ---
 	// Each transformation targets a specific star; we resolve that star's
 	// current wheel position and tag its palace.
-	transforms := fourTransformStarMap(yearGan) // starName -> 化X label
-	transformPositions := map[int]string{}
-	for starName, tf := range transforms {
+	transformations := []ZiweiTransformation{}
+	for _, tf := range fourTransformations(yearGan) {
 		for pos, stars := range starsByPos {
 			for _, s := range stars {
-				if s == starName {
-					transformPositions[pos] = tf
+				if s == tf.Star {
+					transformations = append(transformations, ZiweiTransformation{RuleSetVersion: ZiweiFourTransformRuleSet, Star: tf.Star, Label: tf.Label, Position: pos})
 					break
 				}
 			}
@@ -195,10 +215,15 @@ func (e ZiweiEngine) Compute(in Input) (*Result, error) {
 			}
 		}
 	}
-	for pos, tf := range transformPositions {
+	for _, tf := range transformations {
 		for i := range palaces {
-			if palaces[i].Position == pos {
-				palaces[i].Transform = tf
+			if palaces[i].Position == tf.Position {
+				palaces[i].Transformations = append(palaces[i].Transformations, tf)
+				if palaces[i].Transform == "" {
+					palaces[i].Transform = tf.Label
+				} else {
+					palaces[i].Transform = strings.Join([]string{palaces[i].Transform, tf.Label}, "、")
+				}
 				break
 			}
 		}
@@ -206,9 +231,13 @@ func (e ZiweiEngine) Compute(in Input) (*Result, error) {
 
 	// Determine main star of 命宫 for the summary
 	for _, p := range palaces {
-		if p.IsLife && len(p.Stars) > 0 {
-			lifeMainStar = p.Stars[0]
-			break
+		if p.IsLife {
+			for _, star := range p.Stars {
+				if isZiweiMainStar(star) {
+					lifeMainStar = star
+					break
+				}
+			}
 		}
 	}
 	if lifeMainStar == "" {
@@ -217,28 +246,38 @@ func (e ZiweiEngine) Compute(in Input) (*Result, error) {
 
 	// 命主 / 身主 by 命宫/身宫 branch
 	lifeRuler := palaceRuler(lifeBranch)
-	bodyRuler := palaceRuler(bodyBranch)
+	bodyRuler := bodyRulerByYearBranch(yearZhi)
 
 	// Da Yun: direction by gender+year stem yin/yang; start age by 五行局
 	forward := ziweiDaYunDirection(in.Gender, yearGan)
 	startAge := juStartAge(ju)
 
 	chart := &ZiweiChart{
-		SolarDate:        solarDate,
-		LunarDate:        lunarDate,
-		Gender:           gender,
-		YearGanZhi:       lunar.GetYearInGanZhi(),
-		MonthGanZhi:      lunar.GetMonthInGanZhi(),
-		DayGanZhi:        lunar.GetDayInGanZhi(),
-		LifePalaceBranch: lifeBranch,
-		BodyPalaceBranch: bodyBranch,
-		LifeRuler:        lifeRuler,
-		BodyRuler:        bodyRuler,
-		Palaces:          palaces,
-		WuXingJu:         ju,
-		DaYunStartAge:    startAge,
-		DaYunForward:     forward,
-		MainStarOfLife:   lifeMainStar,
+		AlgorithmVersion:    ZiweiAlgorithmVersion,
+		RulePack:            pack,
+		Warnings:            []string{"provisional chart: approximate rules are declared in rulePack and must not be treated as verified facts"},
+		LunarMonthWasLeap:   rawLunarMonth < 0,
+		LeapMonthRule:       in.ZiweiLeapMonthRule,
+		EffectiveLunarMonth: lunarMonth,
+		SolarDate:           solarDate,
+		LunarDate:           lunarDate,
+		Gender:              gender,
+		YearGanZhi:          lunar.GetYearInGanZhi(),
+		MonthGanZhi:         lunar.GetMonthInGanZhi(),
+		DayGanZhi:           lunar.GetDayInGanZhi(),
+		LifePalaceBranch:    lifeBranch,
+		BodyPalaceBranch:    bodyBranch,
+		LifeRuler:           lifeRuler,
+		BodyRuler:           bodyRuler,
+		Palaces:             palaces,
+		WuXingJu:            ju,
+		DaYunStartAge:       startAge,
+		DaYunForward:        forward,
+		MainStarOfLife:      lifeMainStar,
+		Transformations:     transformations,
+	}
+	if rawLunarMonth < 0 {
+		chart.Warnings = append(chart.Warnings, fmt.Sprintf("leap lunar month %d evaluated with explicit rule %s as month %d", -rawLunarMonth, in.ZiweiLeapMonthRule, lunarMonth))
 	}
 
 	return &Result{
@@ -251,6 +290,29 @@ func (e ZiweiEngine) Compute(in Input) (*Result, error) {
 			"lifeBranch": lifeBranch,
 		},
 	}, nil
+}
+
+func resolveZiweiLunarMonth(rawMonth, lunarDay int, rule string) (int, error) {
+	if rule != "" && rule != ZiweiLeapMonthAsNext && rule != ZiweiLeapMonthSplit15 {
+		return 0, fmt.Errorf("%w: %q", ErrZiweiLeapMonthRuleUnsupported, rule)
+	}
+	if rawMonth > 0 {
+		return rawMonth, nil
+	}
+	month := -rawMonth
+	if rule == "" {
+		return 0, fmt.Errorf("%w: lunar month %d", ErrZiweiLeapMonthRuleRequired, month)
+	}
+	if rule == ZiweiLeapMonthSplit15 && lunarDay <= 15 {
+		return month, nil
+	}
+	return month%12 + 1, nil
+}
+
+func ziweiLifeBodyPositions(lunarMonth, shiChen int) (life, body int) {
+	life = ((lunarMonth-1-shiChen)%12 + 12) % 12
+	body = ((lunarMonth-1+shiChen)%12 + 12) % 12
+	return life, body
 }
 
 // solarHourToShiChen maps a 0-23 solar hour to a 时辰 index 0-11
@@ -274,44 +336,48 @@ func branchName(idx int) string {
 // The starting numbers (2,3,4,5,6) are the传统 values used to compute
 // the 紫微 star position and Da Yun start age.
 
-// computeWuXingJu returns the bureau string (e.g. "水二局").
-func computeWuXingJu(yearGan string, lunarMonth, lunarDay int) string {
-	// Simplified: derive from year stem's element. A full implementation
-	// uses the 命宫 stem-branch nayin; here we use a stable mapping that
-	// gives one of the five bureaus. This is documented as a known
-	// approximation. It must remain visible in result metadata and must never
-	// be presented to the AI layer as if it were an exact rule-pack result.
-	juByStem := map[string]string{
-		"甲": "金四局", "己": "金四局",
-		"乙": "水二局", "庚": "水二局",
-		"丙": "火六局", "辛": "火六局",
-		"丁": "土五局", "壬": "土五局",
-		"戊": "木三局", "癸": "木三局",
+// computeWuXingJu applies 五虎遁 to obtain the life-palace stem, then maps
+// the life-palace stem-branch's sixty-cycle 纳音 element to its bureau.
+func computeWuXingJu(yearGan, lifeBranch string) string {
+	stems := []string{"甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"}
+	yearStem := stemIndex(yearGan)
+	branch := branchIndex(lifeBranch)
+	if yearStem < 0 || branch < 0 {
+		return ""
 	}
-	if ju, ok := juByStem[yearGan]; ok {
-		return ju
+	yinStem := ((yearStem%5)*2 + 2) % 10
+	lifeStem := stems[(yinStem+(branch-2+12)%12)%10]
+	element := naYinElement(lifeStem, lifeBranch)
+	return map[string]string{"水": "水二局", "木": "木三局", "金": "金四局", "土": "土五局", "火": "火六局"}[element]
+}
+
+func branchIndex(branch string) int {
+	for i, candidate := range earthlyBranches12 {
+		if branch == candidate {
+			return i
+		}
 	}
-	return "水二局"
+	return -1
+}
+
+func naYinElement(stem, branch string) string {
+	stems := []string{"甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"}
+	elements := []string{"金", "火", "木", "土", "金", "火", "水", "土", "金", "木", "水", "土", "火", "木", "水", "金", "火", "木", "土", "金", "火", "水", "土", "金", "木", "水", "土", "火", "木", "水"}
+	for i := 0; i < 60; i++ {
+		if stems[i%10] == stem && earthlyBranches12[i%12] == branch {
+			return elements[i/2]
+		}
+	}
+	return ""
 }
 
 // juNumber extracts the numeric start-age/bureau number from a 局 string.
 func juNumber(ju string) int {
-	for _, n := range []int{2, 3, 4, 5, 6} {
-		if fmt.Sprintf("%d", n) != "" && containsJuNum(ju, n) {
-			return n
-		}
+	table := map[string]int{"水二局": 2, "木三局": 3, "金四局": 4, "土五局": 5, "火六局": 6}
+	if number, ok := table[ju]; ok {
+		return number
 	}
-	return 2
-}
-
-func containsJuNum(ju string, n int) bool {
-	target := fmt.Sprintf("%d", n)
-	for i := 0; i+len(target) <= len(ju); i++ {
-		if ju[i:i+len(target)] == target {
-			return true
-		}
-	}
-	return false
+	return 0
 }
 
 // juStartAge returns the Da Yun starting age for a bureau.
@@ -329,41 +395,28 @@ func juStartAge(ju string) int {
 // locateZiwei returns the wheel position (0-11) of the 紫微 star.
 func locateZiwei(lunarDay int, ju string) int {
 	bureau := juNumber(ju)
+	if bureau == 0 {
+		return -1
+	}
 	if lunarDay < 1 {
 		lunarDay = 1
 	}
 	if lunarDay > 30 {
 		lunarDay = 30
 	}
-	// Classic table-driven 紫微定局 lookup (public domain).
-	ziweiTable := ziweiPositionTable()
-	row, ok := ziweiTable[bureau]
-	if !ok {
-		row = ziweiTable[2]
+	added := 0
+	for (lunarDay+added)%bureau != 0 {
+		added++
 	}
-	idx := lunarDay - 1
-	if idx >= len(row) {
-		idx = len(row) - 1
+	// Count the quotient forward from 寅 (寅 is count one), then move the
+	// complement backwards when odd and forwards when even.
+	pos := (lunarDay+added)/bureau - 1
+	if added%2 == 1 {
+		pos -= added
+	} else {
+		pos += added
 	}
-	return row[idx]
-}
-
-// ziweiPositionTable returns the 紫微 star position (wheel index 0-11,
-// 0=寅) for each bureau (key = bureau number) and lunar day (1-30).
-// This is the classic lookup table from 紫微斗数全集 (public domain).
-func ziweiPositionTable() map[int][]int {
-	return map[int][]int{
-		// 水二局
-		2: {1, 2, 1, 2, 4, 5, 4, 5, 7, 8, 7, 8, 10, 11, 10, 11, 1, 2, 1, 2, 4, 5, 4, 5, 7, 8, 7, 8, 10, 11},
-		// 木三局
-		3: {3, 4, 5, 6, 5, 6, 7, 8, 7, 8, 9, 10, 9, 10, 11, 0, 11, 0, 1, 2, 1, 2, 3, 4, 3, 4, 5, 6, 5, 6},
-		// 金四局
-		4: {5, 6, 5, 6, 7, 8, 7, 8, 9, 10, 9, 10, 11, 0, 11, 0, 1, 2, 1, 2, 3, 4, 3, 4, 5, 6, 5, 6, 7, 8},
-		// 土五局
-		5: {5, 6, 7, 8, 7, 8, 9, 10, 9, 10, 11, 0, 11, 0, 1, 2, 1, 2, 3, 4, 3, 4, 5, 6, 5, 6, 7, 8, 7, 8},
-		// 火六局
-		6: {7, 8, 7, 8, 9, 10, 9, 10, 11, 0, 11, 0, 1, 2, 1, 2, 3, 4, 3, 4, 5, 6, 5, 6, 7, 8, 7, 8, 9, 10},
-	}
+	return (pos%12 + 12) % 12
 }
 
 // ── 14 主星安星 ──────────────────────────────────────────────────────
@@ -438,22 +491,16 @@ func placeMainStars(ziweiPos int, ju string, starsByPos map[int][]string) {
 //   火星/铃星 — by 年支+时 (煞)
 //   地空/地劫 — by 时 (煞)
 
-// placeAuxStars fills selected auxiliary and煞 stars.
-func placeAuxStars(yearGan, monthGan, dayGan string, shiChen int, starsByPos map[int][]string) {
-	// 月-based: 左辅 starts at 辰(4), +month; 右弼 starts at 戌(10), -month.
-	// We use a simplified month index derived from the month stem cycle.
-	monthIdx := stemIndex(monthGan)
-	if monthIdx < 0 {
-		monthIdx = 0
-	}
-	zuoPos := (4 + monthIdx) % 12
-	youPos := (10 - monthIdx + 12) % 12
+func placeAuxStars(yearGan, yearZhi string, lunarMonth, shiChen int, starsByPos map[int][]string) {
+	monthOffset := lunarMonth - 1
+	zuoPos := (wheelPositionForBranch("辰") + monthOffset) % 12
+	youPos := (wheelPositionForBranch("戌") - monthOffset + 12) % 12
 	starsByPos[zuoPos] = append(starsByPos[zuoPos], "左辅")
 	starsByPos[youPos] = append(starsByPos[youPos], "右弼")
 
 	// 时-based: 文昌 starts at 戌(10), -时辰; 文曲 starts at 辰(4), +时辰.
-	wenChangPos := (10 - shiChen + 12) % 12
-	wenQuPos := (4 + shiChen) % 12
+	wenChangPos := (wheelPositionForBranch("戌") - shiChen + 12) % 12
+	wenQuPos := (wheelPositionForBranch("辰") + shiChen) % 12
 	starsByPos[wenChangPos] = append(starsByPos[wenChangPos], "文昌")
 	starsByPos[wenQuPos] = append(starsByPos[wenQuPos], "文曲")
 
@@ -472,10 +519,52 @@ func placeAuxStars(yearGan, monthGan, dayGan string, shiChen int, starsByPos map
 	starsByPos[tuoLuoPos] = append(starsByPos[tuoLuoPos], "陀罗")
 
 	// 时-based 煞: 地空/地劫
-	diKongPos := (10 - shiChen + 12) % 12
-	diJiePos := (4 + shiChen) % 12
+	diKongPos := (wheelPositionForBranch("亥") - shiChen + 12) % 12
+	diJiePos := (wheelPositionForBranch("亥") + shiChen) % 12
 	starsByPos[diKongPos] = append(starsByPos[diKongPos], "地空")
 	starsByPos[diJiePos] = append(starsByPos[diJiePos], "地劫")
+
+	if fireBase, bellBase, ok := fireBellBaseBranches(yearZhi); ok {
+		firePos := (wheelPositionForBranch(fireBase) + shiChen) % 12
+		bellPos := (wheelPositionForBranch(bellBase) + shiChen) % 12
+		starsByPos[firePos] = append(starsByPos[firePos], "火星")
+		starsByPos[bellPos] = append(starsByPos[bellPos], "铃星")
+	}
+	if branch, ok := travelHorseBranch(yearZhi); ok {
+		pos := wheelPositionForBranch(branch)
+		starsByPos[pos] = append(starsByPos[pos], "天马")
+	}
+}
+
+func fireBellBaseBranches(yearBranch string) (fire, bell string, ok bool) {
+	groups := map[string][2]string{
+		"申": {"寅", "戌"}, "子": {"寅", "戌"}, "辰": {"寅", "戌"},
+		"寅": {"丑", "卯"}, "午": {"丑", "卯"}, "戌": {"丑", "卯"},
+		"巳": {"卯", "戌"}, "酉": {"卯", "戌"}, "丑": {"卯", "戌"},
+		"亥": {"酉", "戌"}, "卯": {"酉", "戌"}, "未": {"酉", "戌"},
+	}
+	pair, ok := groups[yearBranch]
+	return pair[0], pair[1], ok
+}
+
+func travelHorseBranch(yearBranch string) (string, bool) {
+	groups := map[string]string{
+		"申": "寅", "子": "寅", "辰": "寅",
+		"寅": "申", "午": "申", "戌": "申",
+		"巳": "亥", "酉": "亥", "丑": "亥",
+		"亥": "巳", "卯": "巳", "未": "巳",
+	}
+	branch, ok := groups[yearBranch]
+	return branch, ok
+}
+
+func isZiweiMainStar(star string) bool {
+	mainStars := map[string]bool{"紫微": true, "天机": true, "太阳": true, "武曲": true, "天同": true, "廉贞": true, "天府": true, "太阴": true, "贪狼": true, "巨门": true, "天相": true, "天梁": true, "七杀": true, "破军": true}
+	return mainStars[star]
+}
+
+func wheelPositionForBranch(branch string) int {
+	return (branchIndex(branch) - 2 + 12) % 12
 }
 
 // stemIndex returns the 0-based index of a heavenly stem (甲=0..癸=9).
@@ -491,26 +580,26 @@ func stemIndex(stem string) int {
 
 // guiYuePosByYearStem returns (天魁, 天钺) wheel positions by year stem.
 func guiYuePosByYearStem(yearGan string) (int, int) {
-	// Wheel positions (0=寅). 天魁/天钺 are paired by the year stem group.
-	table := map[string][2]int{
-		"甲": {1, 7}, "乙": {2, 8}, "丙": {11, 5}, "丁": {0, 6},
-		"戊": {1, 7}, "己": {2, 8}, "庚": {11, 5}, "辛": {0, 6},
-		"壬": {3, 9}, "癸": {4, 10},
+	table := map[string][2]string{
+		"甲": {"丑", "未"}, "戊": {"丑", "未"}, "庚": {"丑", "未"},
+		"乙": {"子", "申"}, "己": {"子", "申"},
+		"丙": {"亥", "酉"}, "丁": {"亥", "酉"},
+		"壬": {"卯", "巳"}, "癸": {"卯", "巳"}, "辛": {"午", "寅"},
 	}
 	if pair, ok := table[yearGan]; ok {
-		return pair[0], pair[1]
+		return wheelPositionForBranch(pair[0]), wheelPositionForBranch(pair[1])
 	}
 	return 0, 0
 }
 
 // luCunPosByYearStem returns the 禄存 wheel position by year stem.
 func luCunPosByYearStem(yearGan string) int {
-	table := map[string]int{
-		"甲": 2, "乙": 4, "丙": 6, "丁": 8, "戊": 2,
-		"己": 4, "庚": 6, "辛": 8, "壬": 0, "癸": 10,
+	table := map[string]string{
+		"甲": "寅", "乙": "卯", "丙": "巳", "戊": "巳", "丁": "午",
+		"己": "午", "庚": "申", "辛": "酉", "壬": "亥", "癸": "子",
 	}
-	if pos, ok := table[yearGan]; ok {
-		return pos
+	if branch, ok := table[yearGan]; ok {
+		return wheelPositionForBranch(branch)
 	}
 	return 2
 }
@@ -520,26 +609,37 @@ func luCunPosByYearStem(yearGan string) int {
 // By year stem, four stars receive 化禄/化权/化科/化忌. We map each
 // transformation to the palace position of its target star.
 
-// fourTransformStarMap returns the year-stem 四化 mapping: target star
-// name → transformation label (化禄/化权/化科/化忌). The caller resolves
-// each star's current palace position to tag the right palace.
-func fourTransformStarMap(yearGan string) map[string]string {
-	table := map[string]map[string]string{
-		"甲": {"廉贞": "化禄", "破军": "化权", "武曲": "化科", "太阳": "化忌"},
-		"乙": {"天机": "化禄", "天梁": "化权", "紫微": "化科", "太阴": "化忌"},
-		"丙": {"天同": "化禄", "天机": "化权", "文昌": "化科", "廉贞": "化忌"},
-		"丁": {"太阴": "化禄", "天同": "化权", "天机": "化科", "巨门": "化忌"},
-		"戊": {"贪狼": "化禄", "太阴": "化权", "右弼": "化科", "天机": "化忌"},
-		"己": {"武曲": "化禄", "贪狼": "化权", "天梁": "化科", "文曲": "化忌"},
-		"庚": {"太阳": "化禄", "武曲": "化权", "太阴": "化科", "天同": "化忌"},
-		"辛": {"巨门": "化禄", "太阳": "化权", "文曲": "化科", "文昌": "化忌"},
-		"壬": {"天梁": "化禄", "紫微": "化权", "左辅": "化科", "武曲": "化忌"},
-		"癸": {"破军": "化禄", "巨门": "化权", "太阴": "化科", "贪狼": "化忌"},
+type fourTransformationRule struct {
+	Star  string
+	Label string
+}
+
+// fourTransformations follows the explicitly versioned table transcribed from
+// 紫微斗数全集. 戊、庚、壬 differ between schools; callers must preserve the
+// rule-set version instead of silently mixing variants.
+func fourTransformations(yearGan string) []fourTransformationRule {
+	table := map[string][4]string{
+		"甲": {"廉贞", "破军", "武曲", "太阳"},
+		"乙": {"天机", "天梁", "紫微", "太阴"},
+		"丙": {"天同", "天机", "文昌", "廉贞"},
+		"丁": {"太阴", "天同", "天机", "巨门"},
+		"戊": {"贪狼", "太阴", "右弼", "天机"},
+		"己": {"武曲", "贪狼", "天梁", "文曲"},
+		"庚": {"太阳", "武曲", "太阴", "文曲"},
+		"辛": {"巨门", "太阳", "文曲", "文昌"},
+		"壬": {"天梁", "紫微", "左辅", "武曲"},
+		"癸": {"破军", "巨门", "太阴", "贪狼"},
 	}
-	if m, ok := table[yearGan]; ok {
-		return m
+	stars, ok := table[yearGan]
+	if !ok {
+		return []fourTransformationRule{}
 	}
-	return map[string]string{}
+	labels := [4]string{"化禄", "化权", "化科", "化忌"}
+	rules := make([]fourTransformationRule, 4)
+	for i := range stars {
+		rules[i] = fourTransformationRule{Star: stars[i], Label: labels[i]}
+	}
+	return rules
 }
 
 // ── 命主/身主 ──────────────────────────────────────────────────────────
@@ -557,6 +657,15 @@ func palaceRuler(branch string) string {
 		return star
 	}
 	return ""
+}
+
+func bodyRulerByYearBranch(yearBranch string) string {
+	table := map[string]string{
+		"子": "火星", "午": "火星", "丑": "天相", "未": "天相",
+		"寅": "天梁", "申": "天梁", "卯": "天同", "酉": "天同",
+		"辰": "文昌", "戌": "文昌", "巳": "天机", "亥": "天机",
+	}
+	return table[yearBranch]
 }
 
 // ── 大运方向 ──────────────────────────────────────────────────────────

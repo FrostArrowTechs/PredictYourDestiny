@@ -13,6 +13,12 @@ var (
 	ErrUnknownCharacters           = errors.New("name: characters missing from stroke dictionary")
 )
 
+const (
+	NameDictionaryVersion = "kangxi-seed-2026-07-v1"
+	NameStrokeStandard    = "kangxi"
+	NameRuleSetVersion    = "five-grid-81-v1"
+)
+
 // UnknownCharactersError identifies every character that must be added to the
 // declared stroke dictionary before a deterministic analysis can be produced.
 type UnknownCharactersError struct {
@@ -47,7 +53,16 @@ type NameInput struct {
 
 // NameResult is the output of name analysis.
 type NameResult struct {
-	FullName string `json:"fullName"`
+	FullName          string   `json:"fullName"`
+	Surname           string   `json:"surname"`
+	GivenName         string   `json:"givenName"`
+	SurnameConfirmed  bool     `json:"surnameConfirmed"`
+	InputMode         string   `json:"inputMode"`
+	Script            string   `json:"script"`
+	StrokeStandard    string   `json:"strokeStandard"`
+	DictionaryVersion string   `json:"dictionaryVersion"`
+	RuleSetVersion    string   `json:"ruleSetVersion"`
+	Warnings          []string `json:"warnings"`
 	// 五格
 	TianGe int `json:"tianGe"` // 天格
 	RenGe  int `json:"renGe"`  // 人格
@@ -57,25 +72,38 @@ type NameResult struct {
 	// 三才
 	SanCai string `json:"sanCai"` // 三才配置 e.g. "木火土"
 	// 各格吉凶
-	TianGeLuck string `json:"tianGeLuck"` // 吉/凶/半吉
-	RenGeLuck  string `json:"renGeLuck"`
-	DiGeLuck   string `json:"diGeLuck"`
-	WaiGeLuck  string `json:"waiGeLuck"`
-	ZongGeLuck string `json:"zongGeLuck"`
-	// 整体评分
-	Score     int    `json:"score"`     // 1-100
-	ScoreDesc string `json:"scoreDesc"` // 评分说明
+	TianGeLuck            string           `json:"tianGeLuck"` // 吉/凶/半吉
+	RenGeLuck             string           `json:"renGeLuck"`
+	DiGeLuck              string           `json:"diGeLuck"`
+	WaiGeLuck             string           `json:"waiGeLuck"`
+	ZongGeLuck            string           `json:"zongGeLuck"`
+	TraditionalMatchScore int              `json:"traditionalMatchScore"`
+	TraditionalMatchDesc  string           `json:"traditionalMatchDesc"`
+	Evaluations           []NameEvaluation `json:"evaluations"`
 	// 笔画详情
 	StrokeDetails []StrokeDetail `json:"strokeDetails"`
 }
 
+type NameEvaluation struct {
+	Dimension string   `json:"dimension"`
+	Status    string   `json:"status"`
+	Score     *int     `json:"score,omitempty"`
+	Summary   string   `json:"summary"`
+	Evidence  []string `json:"evidence"`
+	Warnings  []string `json:"warnings"`
+}
+
 // StrokeDetail shows per-character stroke info.
 type StrokeDetail struct {
-	Char      string `json:"char"`
-	Strokes   int    `json:"strokes"`
-	WuXing    string `json:"wuXing"`
-	Position  string `json:"position"` // 姓/名
-	CharIndex int    `json:"charIndex"`
+	Char           string `json:"char"`
+	Strokes        int    `json:"strokes"`
+	WuXing         string `json:"wuXing"`
+	Position       string `json:"position"` // 姓/名
+	CharIndex      int    `json:"charIndex"`
+	Script         string `json:"script"`
+	StrokeStandard string `json:"strokeStandard"`
+	DataVersion    string `json:"dataVersion"`
+	ReviewStatus   string `json:"reviewStatus"`
 }
 
 // SurnameInfo contains parsed surname data.
@@ -103,22 +131,42 @@ func (e NameEngine) Name() string {
 
 // Compute runs the Five格 calculation.
 func (e NameEngine) Compute(in Input) (*Result, error) {
-	// Parse full name from Question field (reuse existing field)
-	fullName := in.Question
-	if fullName == "" {
-		return nil, fmt.Errorf("name: fullName required (use Question field)")
+	var surname, givenName []rune
+	inputMode := "structured"
+	warnings := []string{}
+	if in.Surname != "" || in.GivenName != "" {
+		if strings.TrimSpace(in.Surname) == "" || strings.TrimSpace(in.GivenName) == "" {
+			return nil, fmt.Errorf("name: surname and givenName must both be provided")
+		}
+		surname, givenName = []rune(strings.TrimSpace(in.Surname)), []rune(strings.TrimSpace(in.GivenName))
+		if !in.SurnameConfirmed {
+			return nil, fmt.Errorf("name: surnameConfirmed must be true for structured input")
+		}
+	} else {
+		fullName := strings.TrimSpace(in.Question)
+		chars := []rune(fullName)
+		if len(chars) < 2 {
+			return nil, fmt.Errorf("name: at least 2 characters required")
+		}
+		surname, givenName = e.splitName(chars)
+		inputMode = "legacy_auto_split"
+		warnings = append(warnings, "surname was inferred from fullName; confirm surname and givenName for authoritative analysis")
 	}
-
-	// Parse name into characters
-	chars := []rune(fullName)
-	if len(chars) < 2 {
-		return nil, fmt.Errorf("name: at least 2 characters required")
+	fullName := string(surname) + string(givenName)
+	script := in.Script
+	if script == "" {
+		script = "zh-Hans"
 	}
-
-	// Determine surname/given name split
-	// Common pattern: 1-char surname + 1-2 char given name
-	// Or 2-char surname (复姓) + 1-2 char given name
-	surname, givenName := e.splitName(chars)
+	if script != "zh-Hans" && script != "zh-Hant" {
+		return nil, fmt.Errorf("name: unsupported script %q", script)
+	}
+	strokeStandard := in.StrokeStandard
+	if strokeStandard == "" {
+		strokeStandard = NameStrokeStandard
+	}
+	if strokeStandard != NameStrokeStandard {
+		return nil, fmt.Errorf("name: unsupported stroke standard %q", strokeStandard)
+	}
 
 	// Get stroke counts
 	surnameInfo, err := e.buildSurnameInfo(surname)
@@ -155,24 +203,47 @@ func (e NameEngine) Compute(in Input) (*Result, error) {
 	strokeDetails := e.buildStrokeDetails(surname, givenName, surnameInfo, givenNameInfo)
 
 	result := &NameResult{
-		FullName:      fullName,
-		TianGe:        tianGe,
-		RenGe:         renGe,
-		DiGe:          diGe,
-		WaiGe:         waiGe,
-		ZongGe:        zongGe,
-		SanCai:        sanCai,
-		TianGeLuck:    tianGeLuck,
-		RenGeLuck:     renGeLuck,
-		DiGeLuck:      diGeLuck,
-		WaiGeLuck:     waiGeLuck,
-		ZongGeLuck:    zongGeLuck,
-		Score:         score,
-		ScoreDesc:     scoreDesc,
-		StrokeDetails: strokeDetails,
+		FullName:              fullName,
+		Surname:               string(surname),
+		GivenName:             string(givenName),
+		SurnameConfirmed:      in.SurnameConfirmed,
+		InputMode:             inputMode,
+		Script:                script,
+		StrokeStandard:        strokeStandard,
+		DictionaryVersion:     NameDictionaryVersion,
+		RuleSetVersion:        NameRuleSetVersion,
+		Warnings:              warnings,
+		TianGe:                tianGe,
+		RenGe:                 renGe,
+		DiGe:                  diGe,
+		WaiGe:                 waiGe,
+		ZongGe:                zongGe,
+		SanCai:                sanCai,
+		TianGeLuck:            tianGeLuck,
+		RenGeLuck:             renGeLuck,
+		DiGeLuck:              diGeLuck,
+		WaiGeLuck:             waiGeLuck,
+		ZongGeLuck:            zongGeLuck,
+		TraditionalMatchScore: score,
+		TraditionalMatchDesc:  scoreDesc,
+		Evaluations:           buildNameEvaluations(score, scoreDesc, strokeDetails),
+		StrokeDetails:         strokeDetails,
 	}
 
 	return &Result{Kind: KindName, Data: result}, nil
+}
+
+func buildNameEvaluations(score int, scoreDesc string, details []StrokeDetail) []NameEvaluation {
+	return []NameEvaluation{
+		{Dimension: "traditional_numerology", Status: "available", Score: &score, Summary: scoreDesc,
+			Evidence: []string{NameRuleSetVersion, NameDictionaryVersion}, Warnings: []string{"traditional rule match, not a scientific quality score"}},
+		{Dimension: "pronunciation", Status: "unavailable", Summary: "pronunciation dictionary is not configured",
+			Evidence: []string{}, Warnings: []string{"no tone, polyphone, dialect or homophone analysis was performed"}},
+		{Dimension: "meaning", Status: "unavailable", Summary: "reviewed meaning dictionary is not configured",
+			Evidence: []string{}, Warnings: []string{"no semantic or cultural-association conclusion was generated"}},
+		{Dimension: "writing_compatibility", Status: "basic_check", Summary: fmt.Sprintf("all %d characters exist in the configured stroke dictionary", len(details)),
+			Evidence: []string{NameDictionaryVersion}, Warnings: []string{"document, font and identity-system compatibility was not independently verified"}},
+	}
 }
 
 // splitName separates surname and given name.
@@ -213,7 +284,7 @@ func (e NameEngine) getStrokeCounts(chars []rune) ([]int, error) {
 			Strokes int
 		}
 		err := e.DB.Table("character_strokes").
-			Where("char = ?", string(char)).
+			Where("char = ? AND stroke_standard = ? AND data_version = ?", string(char), NameStrokeStandard, NameDictionaryVersion).
 			Select("strokes").Take(&row).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) || (err == nil && row.Strokes <= 0) {
 			unknown = append(unknown, string(char))
@@ -439,38 +510,48 @@ func (e NameEngine) buildStrokeDetails(surname, givenName []rune, surnameInfo Su
 	details := make([]StrokeDetail, 0, len(surname)+len(givenName))
 
 	for i, char := range surname {
-		wuXing := ""
-		if e.DB != nil {
-			e.DB.Table("character_strokes").
-				Where("char = ?", string(char)).
-				Pluck("wu_xing", &wuXing)
-		}
+		row := e.strokeMetadata(char)
 		details = append(details, StrokeDetail{
 			Char:      string(char),
 			Strokes:   surnameInfo.Strokes[i],
-			WuXing:    wuXing,
+			WuXing:    row.WuXing,
 			Position:  "姓",
 			CharIndex: i,
+			Script:    row.Script, StrokeStandard: row.StrokeStandard, DataVersion: row.DataVersion, ReviewStatus: row.ReviewStatus,
 		})
 	}
 
 	for i, char := range givenName {
-		wuXing := ""
-		if e.DB != nil {
-			e.DB.Table("character_strokes").
-				Where("char = ?", string(char)).
-				Pluck("wu_xing", &wuXing)
-		}
+		row := e.strokeMetadata(char)
 		details = append(details, StrokeDetail{
 			Char:      string(char),
 			Strokes:   givenNameInfo.Strokes[i],
-			WuXing:    wuXing,
+			WuXing:    row.WuXing,
 			Position:  "名",
 			CharIndex: i,
+			Script:    row.Script, StrokeStandard: row.StrokeStandard, DataVersion: row.DataVersion, ReviewStatus: row.ReviewStatus,
 		})
 	}
 
 	return details
+}
+
+type strokeMetadata struct {
+	WuXing         string
+	Script         string
+	StrokeStandard string
+	DataVersion    string
+	ReviewStatus   string
+}
+
+func (e NameEngine) strokeMetadata(char rune) strokeMetadata {
+	var row strokeMetadata
+	if e.DB != nil {
+		e.DB.Table("character_strokes").
+			Where("char = ? AND stroke_standard = ? AND data_version = ?", string(char), NameStrokeStandard, NameDictionaryVersion).
+			Take(&row)
+	}
+	return row
 }
 
 // buildSurnameInfo creates SurnameInfo from rune slice.

@@ -106,6 +106,14 @@ func buildZiweiUser(L ziweiLang, c *fortune.ZiweiChart, depth string) string {
 	fmt.Fprintf(&b, "性别：%s\n", c.Gender)
 	fmt.Fprintf(&b, "年柱：%s  月柱：%s  日柱：%s\n", c.YearGanZhi, c.MonthGanZhi, c.DayGanZhi)
 	fmt.Fprintf(&b, "五行局：%s\n", c.WuXingJu)
+	fmt.Fprintf(&b, "规则包：%s（%s）\n", c.RulePack.Version, c.RulePack.Status)
+	if c.LunarMonthWasLeap {
+		fmt.Fprintf(&b, "闰月规则：%s；有效月份：%d\n", c.LeapMonthRule, c.EffectiveLunarMonth)
+	}
+	if len(c.RulePack.ApproximateRules) > 0 {
+		fmt.Fprintf(&b, "近似规则：%s\n", strings.Join(c.RulePack.ApproximateRules, "；"))
+	}
+	b.WriteString("不得把近似规则产生的结论改写为精确或已核验事实。\n")
 	fmt.Fprintf(&b, "命宫：%s宫  身宫：%s宫\n", c.LifePalaceBranch, c.BodyPalaceBranch)
 	fmt.Fprintf(&b, "命主：%s  身主：%s\n", c.LifeRuler, c.BodyRuler)
 	fmt.Fprintf(&b, "命宫主星：%s\n", c.MainStarOfLife)
@@ -126,8 +134,12 @@ func buildZiweiUser(L ziweiLang, c *fortune.ZiweiChart, depth string) string {
 		} else {
 			b.WriteString("  星曜：（空宫）\n")
 		}
-		if p.Transform != "" {
-			fmt.Fprintf(&b, "  四化：%s\n", p.Transform)
+		if len(p.Transformations) > 0 {
+			items := make([]string, 0, len(p.Transformations))
+			for _, transformation := range p.Transformations {
+				items = append(items, transformation.Star+transformation.Label)
+			}
+			fmt.Fprintf(&b, "  四化（%s）：%s\n", fortune.ZiweiFourTransformRuleSet, strings.Join(items, "、"))
 		}
 	}
 

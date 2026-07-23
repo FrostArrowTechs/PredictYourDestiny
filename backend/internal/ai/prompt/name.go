@@ -8,7 +8,7 @@ import (
 
 // NameBuild creates a prompt for name analysis interpretation.
 func NameBuild(input fortune.Input, result *fortune.Result) (*fortune.PromptSpec, error) {
-	chart, ok := result.Data.(fortune.NameResult)
+	chart, ok := result.Data.(*fortune.NameResult)
 	if !ok {
 		return nil, fmt.Errorf("name: unexpected result type")
 	}
@@ -44,7 +44,7 @@ func NameBuild(input fortune.Input, result *fortune.Result) (*fortune.PromptSpec
 
 【三才配置】%s（天格-人格-地格）
 
-【综合评分】%d分（%s）
+【传统规则匹配分】%d分（%s）
 
 【笔画详情】
 %s
@@ -54,7 +54,7 @@ func NameBuild(input fortune.Input, result *fortune.Result) (*fortune.PromptSpec
 2. 三才配置分析：解读五行生克关系及影响
 3. 性格特点：基于人格和总格推断
 4. 运势走向：事业、感情、健康等方面
-5. 改名建议（如适用）：如分数较低，可建议方向`,
+5. 使用限制：不得把传统规则匹配分描述为姓名的客观质量，不得编造未提供的读音、字义或重名率结论`,
 		},
 		"zh-TW": {
 			system: `你是一位精通姓名學的資深命理師，擅長運用五格剖象法、三才配置、81數理等傳統理論分析姓名的吉凶禍福。你的解讀需要：
@@ -78,7 +78,7 @@ func NameBuild(input fortune.Input, result *fortune.Result) (*fortune.PromptSpec
 
 【三才配置】%s（天格-人格-地格）
 
-【綜合評分】%d分（%s）
+【傳統規則匹配分】%d分（%s）
 
 【筆劃詳情】
 %s
@@ -88,7 +88,7 @@ func NameBuild(input fortune.Input, result *fortune.Result) (*fortune.PromptSpec
 2. 三才配置分析：解讀五行生克關係及影響
 3. 性格特點：基於人格和總格推斷
 4. 運勢走向：事業、感情、健康等方面
-5. 改名建議（如適用）：如分數較低，可建議方向`,
+5. 使用限制：不得把傳統規則匹配分描述為姓名的客觀品質，不得編造未提供的讀音、字義或重名率結論`,
 		},
 	}
 
@@ -115,7 +115,7 @@ func NameBuild(input fortune.Input, result *fortune.Result) (*fortune.PromptSpec
 		chart.WaiGe, chart.WaiGeLuck,
 		chart.ZongGe, chart.ZongGeLuck,
 		chart.SanCai,
-		chart.Score, chart.ScoreDesc,
+		chart.TraditionalMatchScore, chart.TraditionalMatchDesc,
 		detailsStr,
 	)
 

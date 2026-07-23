@@ -70,6 +70,9 @@ type Input struct {
 
 	// Gender of the subject (used by bazi da-yun direction).
 	Gender Gender `json:"gender"`
+	// ZiweiLeapMonthRule is required only when the converted lunar date falls
+	// in a leap month. It prevents silently choosing between competing schools.
+	ZiweiLeapMonthRule string `json:"ziweiLeapMonthRule,omitempty"`
 
 	// Longitude of the birth place in degrees (east positive).
 	// Used for true-solar-time correction. When 0, no correction is
@@ -84,6 +87,14 @@ type Input struct {
 
 	// Free-form question for engines that take one (tarot, dream).
 	Question string `json:"question,omitempty"`
+
+	// Structured name input. FullName/Question remains a legacy compatibility
+	// path; new callers should provide surname and givenName explicitly.
+	Surname          string `json:"surname,omitempty"`
+	GivenName        string `json:"givenName,omitempty"`
+	SurnameConfirmed bool   `json:"surnameConfirmed,omitempty"`
+	Script           string `json:"script,omitempty"`
+	StrokeStandard   string `json:"strokeStandard,omitempty"`
 
 	// InterpretDepth hints the prompt builder at the desired detail
 	// level: "brief" (free tier) or "deep" (paid tier). Engines ignore

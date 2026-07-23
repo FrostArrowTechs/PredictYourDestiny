@@ -11,6 +11,7 @@ export default function AstrologyPage() {
   const [day, setDay] = useState(1)
   const [hour, setHour] = useState(12)
   const [minute, setMinute] = useState(0)
+  const [timeZone, setTimeZone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')
   const [chart, setChart] = useState<AstrologyChart | null>(null)
   const [computing, setComputing] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -24,7 +25,7 @@ export default function AstrologyPage() {
     setChart(null)
     setInterpretation('')
     try {
-      const res = await Astrology.compute({ year, month, day, hour, minute })
+      const res = await Astrology.compute({ year, month, day, hour, minute, timeZone })
       setChart(asAstrologyChart(res))
     } catch (e) {
       setError(t('astrology.error.compute'))
@@ -39,7 +40,7 @@ export default function AstrologyPage() {
     setInterpretation('')
     abortRef.current = new AbortController()
     streamAstrologyInterpret(
-      { year, month, day, hour, minute, stream: true },
+      { year, month, day, hour, minute, timeZone, stream: true },
       (ev: InterpretStreamEvent) => {
         if (ev.error) {
           setError(ev.error)
@@ -55,7 +56,7 @@ export default function AstrologyPage() {
       setError(e instanceof Error ? e.message : 'Stream failed')
       setStreaming(false)
     })
-  }, [chart, year, month, day, hour, minute])
+  }, [chart, year, month, day, hour, minute, timeZone])
 
   const cancelStream = useCallback(() => {
     abortRef.current?.abort()
@@ -139,6 +140,17 @@ export default function AstrologyPage() {
             </select>
           </Field>
         </div>
+
+        <Field label={t('astrology.form.timeZone')}>
+          <input
+            className={selectCls}
+            value={timeZone}
+            onChange={(e) => setTimeZone(e.target.value)}
+            placeholder="America/New_York"
+            autoComplete="off"
+          />
+        </Field>
+        <p className="mt-2 text-xs text-muted">{t('astrology.form.timeZoneHint')}</p>
 
         <button
           onClick={handleCompute}

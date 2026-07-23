@@ -1,0 +1,32 @@
+[
+  {
+    "id": "iztro-docs-2000-08-16-yin-female",
+    "source": "https://www.iztro.com/posts/astrolabe",
+    "sourceVersion": "iztro-docs-v2.4.7",
+    "verification": "external_full_chart_plus_versioned_rule_tables",
+    "reviewers": [],
+    "input": {"year": 2000, "month": 8, "day": 16, "hour": 3, "minute": 0, "gender": 0},
+    "expected": {
+      "lifePalaceBranch": "午",
+      "bodyPalaceBranch": "戌",
+      "lifeRuler": "破军",
+      "bodyRuler": "文昌",
+      "wuXingJu": "木三局",
+      "mainStarOfLife": "紫微",
+      "starsByBranch": {
+        "寅": ["武曲", "天相", "天马"],
+        "卯": ["太阳", "天梁"],
+        "辰": ["七杀", "右弼", "火星"],
+        "巳": ["天机"],
+        "午": ["紫微", "文曲"],
+        "未": ["天钺", "陀罗"],
+        "申": ["破军", "禄存", "文昌"],
+        "酉": ["地空", "擎羊"],
+        "戌": ["廉贞", "天府", "左辅"],
+        "亥": ["太阴"],
+        "子": ["贪狼", "铃星"],
+        "丑": ["天同", "巨门", "天魁", "地劫"]
+      }
+    }
+  }
+]
